@@ -45,16 +45,35 @@ CONTENT_TAG_MAP = {
 
 # 常に付与するベースタグ
 BASE_TAGS = [
-    'muscle girl',
-    'muscular woman',
-    'female muscle',
-    'strong women',
-    'fbb',
-    'fitness motivation',
-    'gym girl',
-    '筋肉女子',
-    '筋トレ女子',
-    'fitfam',
+    'fit', 'strongwomen', 'strongbody', 'strong', 'shreddedgirls', 'shredded',
+    'nofilter', 'noedits', 'naturalmuscle', 'muscles', 'musclegirl', 'hardbodies',
+    'girlswithmuscles', 'fitnessbody', 'fitnation', 'fitmodel', 'fitfam',
+    'athleticgirl', 'athletic', 'bikini', 'girlswithabs', 'girlswholift',
+    'ripped', 'muscle', 'armpit', 'gyaru', 'MuscleLove',
+]
+
+# タイトル候補（ランダムに選択）
+TITLE_TEMPLATES = [
+    "Powerful Beauty",
+    "Strength & Grace",
+    "Iron Goddess",
+    "Muscle Queen",
+    "Shredded Perfection",
+    "Hard Body Goals",
+    "Fitness Goddess",
+    "Strong is Beautiful",
+    "Sculpted Physique",
+    "Athletic Elegance",
+    "Peak Performance",
+    "Muscle Paradise",
+    "Definition Goals",
+    "Power & Beauty",
+    "Steel Body",
+    "Gym Goddess",
+    "Ripped Angel",
+    "Muscle Babe",
+    "Flex Friday",
+    "Body Goals",
 ]
 
 
@@ -366,11 +385,9 @@ def main():
     tags = generate_tags(selected)
     category, description = build_description(selected, tags)
 
-    # Title from filename
-    raw_title = os.path.splitext(fname)[0]
-    title = raw_title.replace('_', ' ').replace('-', ' ').strip()
-    if not title:
-        title = category
+    # タイトル：カテゴリ + ランダムテンプレート
+    template = random.choice(TITLE_TEMPLATES)
+    title = f"{category} - {template}" if category != "Muscle" else template
 
     print(f"Title: {title}")
     print(f"Tags: {', '.join(tags[:10])}...")
