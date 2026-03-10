@@ -224,10 +224,7 @@ def build_description(file_path, tags):
 
     hashtags = ' '.join([f'#{t.replace(" ", "")}' for t in tags[:15]])
 
-    description = (
-        f"If you like it, Please check my Patreon!!<br>"
-        f"<a href=\"{PATREON_LINK}\">{PATREON_LINK}</a>"
-    )
+    description = f'<a href="{PATREON_LINK}">{PATREON_LINK}</a>'
 
     return category, description
 
@@ -244,20 +241,19 @@ def upload_to_stash(access_token, file_path, title, tags, artist_comments):
 
     url = "https://www.deviantart.com/api/v1/oauth2/stash/submit"
 
-    tags_str = ', '.join(tags[:30])  # DeviantArt max ~30 tags
-
     with open(file_path, 'rb') as f:
         files = {
             'file': (fname, f),
         }
-        data = {
-            'access_token': access_token,
-            'title': title,
-            'artist_comments': artist_comments,
-            'tags': tags_str,
-            'is_mature': 'true',
-            'is_ai_generated': 'true',
-        }
+        data = [
+            ('access_token', access_token),
+            ('title', title),
+            ('artist_comments', artist_comments),
+            ('is_mature', 'true'),
+            ('is_ai_generated', 'true'),
+        ]
+        for t in tags[:30]:
+            data.append(('tags[]', t))
 
         r = requests.post(url, data=data, files=files, timeout=600)
 
