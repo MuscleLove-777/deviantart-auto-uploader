@@ -206,9 +206,8 @@ def build_description(file_path, tags):
     hashtags = ' '.join([f'#{t.replace(" ", "")}' for t in tags[:15]])
 
     description = (
-        f"<b>{category}</b><br><br>"
-        f"More content on Patreon: <a href=\"{PATREON_LINK}\">MuscleLove</a><br><br>"
-        f"{hashtags}"
+        f"If you like it, Please check my Patreon!!<br>"
+        f"<a href=\"{PATREON_LINK}\">{PATREON_LINK}</a>"
     )
 
     return category, description
@@ -238,6 +237,7 @@ def upload_to_stash(access_token, file_path, title, tags, artist_comments):
             'artist_comments': artist_comments,
             'tags': tags_str,
             'is_mature': 'true',
+            'is_ai_generated': 'true',
         }
 
         r = requests.post(url, data=data, files=files, timeout=600)
