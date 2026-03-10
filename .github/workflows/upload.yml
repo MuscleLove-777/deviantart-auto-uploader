@@ -1,0 +1,49 @@
+name: DeviantArt Auto Upload
+
+on:
+  schedule:
+    # JST 6:00, 12:00, 18:00, 24:00 = UTC 21:00(前日), 03:00, 09:00, 15:00
+    - cron: '0 21 * * *'
+    - cron: '0 3 * * *'
+    - cron: '0 9 * * *'
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests gdown
+
+      - name: Download uploaded log
+        continue-on-error: true
+        run: |
+          gh run download --name uploaded-log --dir . 2>/dev/null || echo "No previous log found"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run upload
+        env:
+          DA_CLIENT_ID: ${{ secrets.DA_CLIENT_ID }}
+          DA_CLIENT_SECRET: ${{ secrets.DA_CLIENT_SECRET }}
+          DA_ACCESS_TOKEN: ${{ secrets.DA_ACCESS_TOKEN }}
+          DA_REFRESH_TOKEN: ${{ secrets.DA_REFRESH_TOKEN }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: python upload.py
+
+      - name: Save uploaded log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uploaded-log
+          path: uploaded.json
+          overwrite: true
