@@ -2,7 +2,6 @@ name: DeviantArt Auto Upload
 
 on:
   schedule:
-    # JST 6:00, 12:00, 18:00, 24:00 = UTC 21:00(前日), 03:00, 09:00, 15:00
     - cron: '0 21 * * *'
     - cron: '0 3 * * *'
     - cron: '0 9 * * *'
@@ -39,6 +38,58 @@ jobs:
           DA_REFRESH_TOKEN: ${{ secrets.DA_REFRESH_TOKEN }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: python upload.py
+
+      # ---------------------------------------------------------------
+      # Update GitHub Secrets with refreshed OAuth tokens.
+      # GITHUB_TOKEN does not have permission to write secrets, so a
+      # Personal Access Token (classic) with "repo" scope must be stored
+      # as the repository secret GH_PAT.
+      # ---------------------------------------------------------------
+      - name: Update secrets if tokens were refreshed
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          OLD_ACCESS_TOKEN: ${{ secrets.DA_ACCESS_TOKEN }}
+          OLD_REFRESH_TOKEN: ${{ secrets.DA_REFRESH_TOKEN }}
+        run: |
+          python3 -c "
+          import json, os, subprocess, sys
+
+          path = 'uploaded.json'
+          if not os.path.exists(path):
+              print('uploaded.json not found, skipping secret update')
+              sys.exit(0)
+
+          with open(path) as f:
+              data = json.load(f)
+
+          tokens = data.get('tokens', {})
+          new_access  = tokens.get('access_token', '')
+          new_refresh = tokens.get('refresh_token', '')
+          old_access  = os.environ.get('OLD_ACCESS_TOKEN', '')
+          old_refresh = os.environ.get('OLD_REFRESH_TOKEN', '')
+
+          updated = False
+
+          if new_access and new_access != old_access:
+              print('Access token changed, updating DA_ACCESS_TOKEN secret...')
+              subprocess.run(
+                  ['gh', 'secret', 'set', 'DA_ACCESS_TOKEN'],
+                  input=new_access, text=True, check=True,
+              )
+              updated = True
+
+          if new_refresh and new_refresh != old_refresh:
+              print('Refresh token changed, updating DA_REFRESH_TOKEN secret...')
+              subprocess.run(
+                  ['gh', 'secret', 'set', 'DA_REFRESH_TOKEN'],
+                  input=new_refresh, text=True, check=True,
+              )
+              updated = True
+
+          if not updated:
+              print('Tokens unchanged, no secrets to update.')
+          "
 
       - name: Save uploaded log
         if: always()
