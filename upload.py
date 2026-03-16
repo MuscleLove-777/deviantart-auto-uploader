@@ -213,13 +213,29 @@ def generate_tags(file_path):
     return unique_tags
 
 
+def sanitize_category(name, max_len=30):
+    """フォルダ名からカテゴリ名を安全に抽出する（プロンプト文字列を除去）"""
+    import re
+    # 中括弧やプロンプト記法を除去
+    name = re.sub(r'[{}\[\]]', '', name)
+    # カンマ区切りの長いプロンプト文字列は最初の部分だけ使う
+    if ',' in name:
+        name = name.split(',')[0].strip()
+    # 先頭・末尾の空白やハイフンを除去
+    name = name.strip(' -_')
+    # 長すぎる場合は切り詰め
+    if len(name) > max_len:
+        name = name[:max_len].rstrip(' -_')
+    return name if name else "Muscle"
+
+
 def build_description(file_path, tags):
     """Patreonリンク付き説明文を生成"""
     parts = file_path.replace('\\', '/').split('/')
     category = "Muscle"
     for p in parts:
         if p not in ['media', ''] and '.' not in p:
-            category = p
+            category = sanitize_category(p)
             break
 
     hashtags = ' '.join([f'#{t.replace(" ", "")}' for t in tags[:15]])
@@ -362,15 +378,18 @@ def main():
         print("No media files found!")
         return 0
 
-    # Filter out already uploaded
-    uploaded_names = [entry['file'] if isinstance(entry, dict) else entry
-                      for entry in log_data.get("files", [])]
-    available = [f for f in media_files if os.path.basename(f) not in uploaded_names]
-    if not available:
-        print("All files already uploaded!")
-        return 0
-
-    print(f"\nAvailable: {len(available)} / Total: {len(media_files)}")
+    # Filter out already uploaded (skip filter if UPLOAD_ALL is set)
+    if os.environ.get("UPLOAD_ALL", "").lower() in ("1", "true", "yes"):
+        available = media_files
+        print(f"\nUPLOAD_ALL enabled: all {len(available)} files are candidates")
+    else:
+        uploaded_names = [entry['file'] if isinstance(entry, dict) else entry
+                          for entry in log_data.get("files", [])]
+        available = [f for f in media_files if os.path.basename(f) not in uploaded_names]
+        if not available:
+            print("All files already uploaded!")
+            return 0
+        print(f"\nAvailable: {len(available)} / Total: {len(media_files)}")
 
     # Select random file
     selected = random.choice(available)
@@ -392,9 +411,11 @@ def main():
 
     category, description = build_description(selected, tags)
 
-    # タイトル：カテゴリ + ランダムテンプレート
+    # タイトル：カテゴリ + ランダムテンプレート（最大50文字）
     template = random.choice(TITLE_TEMPLATES)
     title = f"{category} - {template}" if category != "Muscle" else template
+    if len(title) > 50:
+        title = template  # カテゴリが長すぎる場合はテンプレートのみ
 
     print(f"Title: {title}")
     print(f"Tags: {', '.join(tags[:10])}...")
