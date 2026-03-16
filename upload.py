@@ -224,7 +224,7 @@ def build_description(file_path, tags):
 
     hashtags = ' '.join([f'#{t.replace(" ", "")}' for t in tags[:15]])
 
-    description = PATREON_LINK
+    description = f'<a href="{PATREON_LINK}">🔥 More content on Patreon → MuscleLove</a>'
 
     return category, description
 
