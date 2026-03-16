@@ -379,6 +379,17 @@ def main():
 
     # Generate tags and description
     tags = generate_tags(selected)
+
+    # Google Trendsからトレンドタグを追加
+    from trending import get_trending_tags
+    trend_tags = get_trending_tags(max_tags=5)
+    if trend_tags:
+        seen = {t.lower() for t in tags}
+        for t in trend_tags:
+            if t.lower() not in seen:
+                tags.append(t)
+                seen.add(t.lower())
+
     category, description = build_description(selected, tags)
 
     # タイトル：カテゴリ + ランダムテンプレート
