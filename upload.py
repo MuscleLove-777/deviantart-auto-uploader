@@ -411,11 +411,15 @@ def main():
 
     category, description = build_description(selected, tags)
 
-    # タイトル：カテゴリ + ランダムテンプレート（最大50文字）
+    # タイトル：カテゴリ + ランダムテンプレート（UTF-8で最大50バイト）
     template = random.choice(TITLE_TEMPLATES)
     title = f"{category} - {template}" if category != "Muscle" else template
-    if len(title) > 50:
+    if len(title.encode('utf-8')) > 50:
         title = template  # カテゴリが長すぎる場合はテンプレートのみ
+    if len(title.encode('utf-8')) > 50:
+        title = title[:50]
+        while len(title.encode('utf-8')) > 50:
+            title = title[:-1]
 
     print(f"Title: {title}")
     print(f"Tags: {', '.join(tags[:10])}...")
@@ -444,6 +448,13 @@ def main():
     publish_url = ''
     if result:
         publish_url = result.get('url', '')
+
+        # Step 3: Playwrightでdescriptionにクリック可能なPatreonリンクを追加
+        try:
+            from add_link import add_patreon_link
+            add_patreon_link(publish_url)
+        except Exception as e:
+            print(f"Playwright link addition failed (non-fatal): {e}")
     else:
         print("Warning: Uploaded to Sta.sh but publish failed.")
         print(f"  Manually publish at: https://sta.sh (itemid: {itemid})")
