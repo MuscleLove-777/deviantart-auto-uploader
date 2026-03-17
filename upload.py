@@ -448,13 +448,6 @@ def main():
     publish_url = ''
     if result:
         publish_url = result.get('url', '')
-
-        # Step 3: Playwrightでdescriptionにクリック可能なPatreonリンクを追加
-        try:
-            from add_link import add_patreon_link
-            add_patreon_link(publish_url)
-        except Exception as e:
-            print(f"Playwright link addition failed (non-fatal): {e}")
     else:
         print("Warning: Uploaded to Sta.sh but publish failed.")
         print(f"  Manually publish at: https://sta.sh (itemid: {itemid})")
