@@ -8,6 +8,9 @@ on:
     - cron: '0 15 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   upload:
     runs-on: ubuntu-latest
@@ -30,7 +33,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run upload
+      - name: Run upload (attempt 1)
+        id: attempt1
+        continue-on-error: true
         env:
           DA_CLIENT_ID: ${{ secrets.DA_CLIENT_ID }}
           DA_CLIENT_SECRET: ${{ secrets.DA_CLIENT_SECRET }}
@@ -45,56 +50,85 @@ jobs:
       # Personal Access Token (classic) with "repo" scope must be stored
       # as the repository secret GH_PAT.
       # ---------------------------------------------------------------
-      - name: Update secrets if tokens were refreshed
-        if: always()
+
+      - name: Wait before retry 2
+        if: steps.attempt1.outcome == 'failure'
+        run: echo "Attempt 1 failed. Waiting 60s..." && sleep 60
+
+      - name: Run upload (attempt 2)
+        id: attempt2
+        if: steps.attempt1.outcome == 'failure'
+        continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-          OLD_ACCESS_TOKEN: ${{ secrets.DA_ACCESS_TOKEN }}
-          OLD_REFRESH_TOKEN: ${{ secrets.DA_REFRESH_TOKEN }}
+          DA_CLIENT_ID: ${{ secrets.DA_CLIENT_ID }}
+          DA_CLIENT_SECRET: ${{ secrets.DA_CLIENT_SECRET }}
+          DA_ACCESS_TOKEN: ${{ secrets.DA_ACCESS_TOKEN }}
+          DA_REFRESH_TOKEN: ${{ secrets.DA_REFRESH_TOKEN }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: python upload.py
+
+      # ---------------------------------------------------------------
+      # Update GitHub Secrets with refreshed OAuth tokens.
+      # GITHUB_TOKEN does not have permission to write secrets, so a
+      # Personal Access Token (classic) with "repo" scope must be stored
+      # as the repository secret GH_PAT.
+      # ---------------------------------------------------------------
+
+      - name: Wait before retry 3
+        if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
+        run: echo "Attempt 2 failed. Waiting 120s..." && sleep 120
+
+      - name: Run upload (attempt 3)
+        id: attempt3
+        if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
+        env:
+          DA_CLIENT_ID: ${{ secrets.DA_CLIENT_ID }}
+          DA_CLIENT_SECRET: ${{ secrets.DA_CLIENT_SECRET }}
+          DA_ACCESS_TOKEN: ${{ secrets.DA_ACCESS_TOKEN }}
+          DA_REFRESH_TOKEN: ${{ secrets.DA_REFRESH_TOKEN }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: python upload.py
+
+      # ---------------------------------------------------------------
+      # Update GitHub Secrets with refreshed OAuth tokens.
+      # GITHUB_TOKEN does not have permission to write secrets, so a
+      # Personal Access Token (classic) with "repo" scope must be stored
+      # as the repository secret GH_PAT.
+      # ---------------------------------------------------------------
+
+      - name: LINE notify on failure
+        if: steps.attempt1.outcome == 'failure' && (steps.attempt2.outcome == 'failure' || steps.attempt2.outcome == 'skipped') && (steps.attempt3.outcome == 'failure' || steps.attempt3.outcome == 'skipped')
+        env:
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
         run: |
-          python3 -c "
-          import json, os, subprocess, sys
+          curl -s -X POST https://api.line.me/v2/bot/message/push \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${LINE_CHANNEL_TOKEN}" \
+            -d "{
+              \"to\": \"${LINE_USER_ID}\",
+              \"messages\": [{
+                \"type\": \"text\",
+                \"text\": \"⚠️ DeviantArt自動投稿が3回リトライしても失敗しました\\n\\n時刻: $(TZ=Asia/Tokyo date +%Y-%m-%d\ %H:%M\ JST)\\nログ: https://github.com/MuscleLove-777/deviantart-auto-uploader/actions/runs/${{ github.run_id }}\"
+              }]
+            }"
 
-          path = 'uploaded.json'
-          if not os.path.exists(path):
-              print('uploaded.json not found, skipping secret update')
-              sys.exit(0)
-
-          with open(path) as f:
-              data = json.load(f)
-
-          tokens = data.get('tokens', {})
-          new_access  = tokens.get('access_token', '')
-          new_refresh = tokens.get('refresh_token', '')
-          old_access  = os.environ.get('OLD_ACCESS_TOKEN', '')
-          old_refresh = os.environ.get('OLD_REFRESH_TOKEN', '')
-
-          updated = False
-
-          if new_access and new_access != old_access:
-              print('Access token changed, updating DA_ACCESS_TOKEN secret...')
-              subprocess.run(
-                  ['gh', 'secret', 'set', 'DA_ACCESS_TOKEN'],
-                  input=new_access, text=True, check=True,
-              )
-              updated = True
-
-          if new_refresh and new_refresh != old_refresh:
-              print('Refresh token changed, updating DA_REFRESH_TOKEN secret...')
-              subprocess.run(
-                  ['gh', 'secret', 'set', 'DA_REFRESH_TOKEN'],
-                  input=new_refresh, text=True, check=True,
-              )
-              updated = True
-
-          if not updated:
-              print('Tokens unchanged, no secrets to update.')
-          "
-
-      - name: Save uploaded log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: uploaded-log
-          path: uploaded.json
-          overwrite: true
+      - name: LINE notify on success
+        if: steps.attempt1.outcome == 'success' || steps.attempt2.outcome == 'success' || steps.attempt3.outcome == 'success'
+        env:
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: |
+          RETRY_INFO=""
+          if [ "${{ steps.attempt2.outcome }}" = "success" ]; then RETRY_INFO="（2回目で成功）"; fi
+          if [ "${{ steps.attempt3.outcome }}" = "success" ]; then RETRY_INFO="（3回目で成功）"; fi
+          curl -s -X POST https://api.line.me/v2/bot/message/push \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${LINE_CHANNEL_TOKEN}" \
+            -d "{
+              \"to\": \"${LINE_USER_ID}\",
+              \"messages\": [{
+                \"type\": \"text\",
+                \"text\": \"✅ DeviantArt自動投稿 成功${RETRY_INFO}\\n時刻: $(TZ=Asia/Tokyo date +%Y-%m-%d\ %H:%M\ JST)\"
+              }]
+            }"
