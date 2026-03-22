@@ -44,12 +44,37 @@ jobs:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: python upload.py
 
-      # ---------------------------------------------------------------
-      # Update GitHub Secrets with refreshed OAuth tokens.
-      # GITHUB_TOKEN does not have permission to write secrets, so a
-      # Personal Access Token (classic) with "repo" scope must be stored
-      # as the repository secret GH_PAT.
-      # ---------------------------------------------------------------
+      - name: Save tokens and log (attempt 1)
+        if: always() && steps.attempt1.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uploaded-log
+          path: uploaded.json
+          overwrite: true
+
+      - name: Update secrets with refreshed tokens (attempt 1)
+        if: always() && steps.attempt1.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "GH_PAT not set, skipping secret update"
+            exit 0
+          fi
+          if [ ! -f uploaded.json ]; then
+            echo "No uploaded.json found"
+            exit 0
+          fi
+          NEW_AT=$(python3 -c "import json; d=json.load(open('uploaded.json')); print(d.get('tokens',{}).get('access_token',''))" 2>/dev/null || echo "")
+          NEW_RT=$(python3 -c "import json; d=json.load(open('uploaded.json')); print(d.get('tokens',{}).get('refresh_token',''))" 2>/dev/null || echo "")
+          if [ -n "$NEW_AT" ]; then
+            echo "$NEW_AT" | gh secret set DA_ACCESS_TOKEN
+            echo "DA_ACCESS_TOKEN updated"
+          fi
+          if [ -n "$NEW_RT" ]; then
+            echo "$NEW_RT" | gh secret set DA_REFRESH_TOKEN
+            echo "DA_REFRESH_TOKEN updated"
+          fi
 
       - name: Wait before retry 2
         if: steps.attempt1.outcome == 'failure'
@@ -67,12 +92,37 @@ jobs:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: python upload.py
 
-      # ---------------------------------------------------------------
-      # Update GitHub Secrets with refreshed OAuth tokens.
-      # GITHUB_TOKEN does not have permission to write secrets, so a
-      # Personal Access Token (classic) with "repo" scope must be stored
-      # as the repository secret GH_PAT.
-      # ---------------------------------------------------------------
+      - name: Save tokens and log (attempt 2)
+        if: always() && steps.attempt2.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uploaded-log
+          path: uploaded.json
+          overwrite: true
+
+      - name: Update secrets with refreshed tokens (attempt 2)
+        if: always() && steps.attempt2.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "GH_PAT not set, skipping secret update"
+            exit 0
+          fi
+          if [ ! -f uploaded.json ]; then
+            echo "No uploaded.json found"
+            exit 0
+          fi
+          NEW_AT=$(python3 -c "import json; d=json.load(open('uploaded.json')); print(d.get('tokens',{}).get('access_token',''))" 2>/dev/null || echo "")
+          NEW_RT=$(python3 -c "import json; d=json.load(open('uploaded.json')); print(d.get('tokens',{}).get('refresh_token',''))" 2>/dev/null || echo "")
+          if [ -n "$NEW_AT" ]; then
+            echo "$NEW_AT" | gh secret set DA_ACCESS_TOKEN
+            echo "DA_ACCESS_TOKEN updated"
+          fi
+          if [ -n "$NEW_RT" ]; then
+            echo "$NEW_RT" | gh secret set DA_REFRESH_TOKEN
+            echo "DA_REFRESH_TOKEN updated"
+          fi
 
       - name: Wait before retry 3
         if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
@@ -89,12 +139,37 @@ jobs:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: python upload.py
 
-      # ---------------------------------------------------------------
-      # Update GitHub Secrets with refreshed OAuth tokens.
-      # GITHUB_TOKEN does not have permission to write secrets, so a
-      # Personal Access Token (classic) with "repo" scope must be stored
-      # as the repository secret GH_PAT.
-      # ---------------------------------------------------------------
+      - name: Save tokens and log (attempt 3)
+        if: always() && steps.attempt3.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uploaded-log
+          path: uploaded.json
+          overwrite: true
+
+      - name: Update secrets with refreshed tokens (attempt 3)
+        if: always() && steps.attempt3.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "GH_PAT not set, skipping secret update"
+            exit 0
+          fi
+          if [ ! -f uploaded.json ]; then
+            echo "No uploaded.json found"
+            exit 0
+          fi
+          NEW_AT=$(python3 -c "import json; d=json.load(open('uploaded.json')); print(d.get('tokens',{}).get('access_token',''))" 2>/dev/null || echo "")
+          NEW_RT=$(python3 -c "import json; d=json.load(open('uploaded.json')); print(d.get('tokens',{}).get('refresh_token',''))" 2>/dev/null || echo "")
+          if [ -n "$NEW_AT" ]; then
+            echo "$NEW_AT" | gh secret set DA_ACCESS_TOKEN
+            echo "DA_ACCESS_TOKEN updated"
+          fi
+          if [ -n "$NEW_RT" ]; then
+            echo "$NEW_RT" | gh secret set DA_REFRESH_TOKEN
+            echo "DA_REFRESH_TOKEN updated"
+          fi
 
       - name: LINE notify on failure
         if: steps.attempt1.outcome == 'failure' && (steps.attempt2.outcome == 'failure' || steps.attempt2.outcome == 'skipped') && (steps.attempt3.outcome == 'failure' || steps.attempt3.outcome == 'skipped')
