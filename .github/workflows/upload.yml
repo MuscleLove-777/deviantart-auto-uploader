@@ -2,10 +2,8 @@ name: DeviantArt Auto Upload
 
 on:
   schedule:
-    - cron: '0 21 * * *'
+    # 毎日 JST 12:00 (UTC 3:00)
     - cron: '0 3 * * *'
-    - cron: '0 9 * * *'
-    - cron: '0 15 * * *'
   workflow_dispatch:
 
 permissions:
