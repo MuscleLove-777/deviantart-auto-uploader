@@ -113,6 +113,21 @@ TITLE_TEMPLATES = [
     "鋼の女 Iron Woman 🔥",
     "最強ボディ Ultimate 💪",
     "筋トレ女神 Gym Deity ✨",
+    # --- Pool expansion 2026-04-25 (was 25 titles → 35, +40%) ---
+    # Time-of-day flavored
+    "Sunrise Pump Ritual 🌅",
+    "Midnight Iron Session 🌙",
+    "Golden Hour Physique ✨",
+    # Seasonal hint
+    "Summer Shred Mode 🔥",
+    "Winter Bulk Goddess ❄",
+    # Aesthetic / mythic
+    "Olympus Tier Aesthetics 💪",
+    "Bronze Age Sculpture 🔥",
+    "Quantum Gains Activated ✨",
+    # JP mix expansion
+    "極限フィジーク Apex 💪",
+    "黄金比 Golden Ratio ✨",
 ]
 
 
