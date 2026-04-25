@@ -18,12 +18,40 @@ DA_CLIENT_SECRET = os.environ.get("DA_CLIENT_SECRET", "")
 DA_ACCESS_TOKEN = os.environ.get("DA_ACCESS_TOKEN", "")
 DA_REFRESH_TOKEN = os.environ.get("DA_REFRESH_TOKEN", "")
 
-PATREON_LINK = "https://www.patreon.com/cw/MuscleLove"
+PATREON_LINK = "https://www.patreon.com/cw/MuscleLove?utm_source=deviantart"
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
 VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.wmv', '.mkv', '.webm'}
 ALL_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 MAX_FILE_SIZE = 200 * 1024 * 1024  # DeviantArt limit: 200MB
 UPLOADED_LOG = "uploaded.json"
+
+# --- MuscleLove バックリンクプール（DeviantArt: アダルト+フィットネス両OK） ---
+ML_BACKLINK_POOL = [
+    ("https://musclelove-777.github.io/female-physique-queens/", "Female Physique Queens"),
+    ("https://musclelove-777.github.io/muscle-meal-girls/", "Muscle Meal Girls"),
+    ("https://musclelove-777.github.io/armwrestling-girls-navi/", "Armwrestling Girls Navi"),
+    ("https://musclelove-777.github.io/physique-girls-navi/", "Physique Girls Navi"),
+    ("https://musclelove-777.github.io/fighting-girls-navi/", "Fighting Girls Navi"),
+    ("https://musclelove-777.github.io/joshi-prowrestling-navi/", "Joshi ProWrestling Navi"),
+    ("https://musclelove-777.github.io/network/fitness/", "MuscleLove Fitness Network"),
+    ("https://musclelove-777.github.io/network/academy/", "MuscleLove Academy 77"),
+]
+
+
+def build_backlink_block():
+    """MuscleLove バックリンクHTMLブロック（ランダム2件、冪等マーカー付き）"""
+    try:
+        k = min(2, len(ML_BACKLINK_POOL))
+        selected = random.sample(ML_BACKLINK_POOL, k=k)
+        items = " | ".join([f'<a href="{u}">{n}</a>' for u, n in selected])
+        return (
+            "<br/>"
+            "<!-- ML_BACKLINK -->"
+            f"🔗 Related: {items}"
+            "<!-- /ML_BACKLINK -->"
+        )
+    except Exception:
+        return ""
 
 # フォルダ名・ファイル名からコンテンツを推測してタグを生成するマッピング
 CONTENT_TAG_MAP = {
@@ -252,6 +280,7 @@ def build_description(file_path, tags):
     hashtags = ' '.join([f'#{t.replace(" ", "")}' for t in tags[:15]])
 
     description = f'🔥 More content on Patreon → <a href="{PATREON_LINK}">MuscleLove</a>'
+    description = description + " " + build_backlink_block()
 
     return category, description
 
