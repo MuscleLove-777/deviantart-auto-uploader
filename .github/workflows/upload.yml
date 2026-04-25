@@ -2,8 +2,9 @@ name: DeviantArt Auto Upload
 
 on:
   schedule:
-    # 毎日 JST 12:00 (UTC 3:00)
-    - cron: '0 3 * * *'
+    # Wave6-C 頻度UP (規約配慮で間隔分散、ameblo UTC 3/9/13 とは衝突なし)
+    - cron: '30 7 * * *'  # JST 16:30
+    - cron: '30 19 * * *'  # JST 04:30
   workflow_dispatch:
 
 permissions:
