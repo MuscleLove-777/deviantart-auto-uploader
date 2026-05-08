@@ -219,7 +219,7 @@ def download_media():
     url = f"https://drive.google.com/drive/folders/{GDRIVE_FOLDER_ID}"
     print(f"Downloading from Google Drive: {url}")
     try:
-        gdown.download_folder(url, output=dl_dir, quiet=False, remaining_ok=True)
+        gdown.download_folder(url, output=dl_dir, quiet=False)
     except Exception as e:
         print(f"Download error: {e}")
 
