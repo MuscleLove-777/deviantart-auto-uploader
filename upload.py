@@ -18,7 +18,7 @@ DA_CLIENT_SECRET = os.environ.get("DA_CLIENT_SECRET", "")
 DA_ACCESS_TOKEN = os.environ.get("DA_ACCESS_TOKEN", "")
 DA_REFRESH_TOKEN = os.environ.get("DA_REFRESH_TOKEN", "")
 
-PATREON_LINK = "https://www.patreon.com/cw/MuscleLove?utm_source=deviantart"
+PATREON_LINK = "https://www.patreon.com/c/MuscleLove?utm_source=deviantart"
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
 VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.wmv', '.mkv', '.webm'}
 ALL_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
