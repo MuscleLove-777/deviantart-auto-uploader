@@ -60,12 +60,12 @@ jobs:
             echo "GH_PAT not set, skipping secret update"
             exit 0
           fi
-          if [ ! -f uploaded.json ]; then
-            echo "No uploaded.json found"
+          if [ ! -f tokens.json ]; then
+            echo "No tokens.json found"
             exit 0
           fi
-          NEW_AT=$(python3 -c "import json; d=json.load(open('uploaded.json')); print(d.get('tokens',{}).get('access_token',''))" 2>/dev/null || echo "")
-          NEW_RT=$(python3 -c "import json; d=json.load(open('uploaded.json')); print(d.get('tokens',{}).get('refresh_token',''))" 2>/dev/null || echo "")
+          NEW_AT=$(python3 -c "import json; d=json.load(open('tokens.json')); print(d.get('access_token',''))" 2>/dev/null || echo "")
+          NEW_RT=$(python3 -c "import json; d=json.load(open('tokens.json')); print(d.get('refresh_token',''))" 2>/dev/null || echo "")
           if [ -n "$NEW_AT" ]; then
             echo "$NEW_AT" | gh secret set DA_ACCESS_TOKEN
             echo "DA_ACCESS_TOKEN updated"
@@ -108,12 +108,12 @@ jobs:
             echo "GH_PAT not set, skipping secret update"
             exit 0
           fi
-          if [ ! -f uploaded.json ]; then
-            echo "No uploaded.json found"
+          if [ ! -f tokens.json ]; then
+            echo "No tokens.json found"
             exit 0
           fi
-          NEW_AT=$(python3 -c "import json; d=json.load(open('uploaded.json')); print(d.get('tokens',{}).get('access_token',''))" 2>/dev/null || echo "")
-          NEW_RT=$(python3 -c "import json; d=json.load(open('uploaded.json')); print(d.get('tokens',{}).get('refresh_token',''))" 2>/dev/null || echo "")
+          NEW_AT=$(python3 -c "import json; d=json.load(open('tokens.json')); print(d.get('access_token',''))" 2>/dev/null || echo "")
+          NEW_RT=$(python3 -c "import json; d=json.load(open('tokens.json')); print(d.get('refresh_token',''))" 2>/dev/null || echo "")
           if [ -n "$NEW_AT" ]; then
             echo "$NEW_AT" | gh secret set DA_ACCESS_TOKEN
             echo "DA_ACCESS_TOKEN updated"
@@ -155,12 +155,12 @@ jobs:
             echo "GH_PAT not set, skipping secret update"
             exit 0
           fi
-          if [ ! -f uploaded.json ]; then
-            echo "No uploaded.json found"
+          if [ ! -f tokens.json ]; then
+            echo "No tokens.json found"
             exit 0
           fi
-          NEW_AT=$(python3 -c "import json; d=json.load(open('uploaded.json')); print(d.get('tokens',{}).get('access_token',''))" 2>/dev/null || echo "")
-          NEW_RT=$(python3 -c "import json; d=json.load(open('uploaded.json')); print(d.get('tokens',{}).get('refresh_token',''))" 2>/dev/null || echo "")
+          NEW_AT=$(python3 -c "import json; d=json.load(open('tokens.json')); print(d.get('access_token',''))" 2>/dev/null || echo "")
+          NEW_RT=$(python3 -c "import json; d=json.load(open('tokens.json')); print(d.get('refresh_token',''))" 2>/dev/null || echo "")
           if [ -n "$NEW_AT" ]; then
             echo "$NEW_AT" | gh secret set DA_ACCESS_TOKEN
             echo "DA_ACCESS_TOKEN updated"

@@ -24,6 +24,7 @@ VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.wmv', '.mkv', '.webm'}
 ALL_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 MAX_FILE_SIZE = 200 * 1024 * 1024  # DeviantArt limit: 200MB
 UPLOADED_LOG = "uploaded.json"
+TOKENS_FILE = "tokens.json"  # Secrets更新用（artifactにはアップロードしない・gitignore対象）
 
 # --- MuscleLove バックリンクプール（DeviantArt: アダルト+フィットネス両OK） ---
 ML_BACKLINK_POOL = [
@@ -190,13 +191,25 @@ def get_valid_token(access_token, refresh_token):
 def load_uploaded_log():
     """アップロード済みファイルの記録を読み込む"""
     if not os.path.exists(UPLOADED_LOG):
-        return {"files": [], "tokens": {}}
+        return {"files": []}
     with open(UPLOADED_LOG, 'r', encoding='utf-8') as f:
         data = json.load(f)
     # Support both old list format and new dict format
     if isinstance(data, list):
-        return {"files": data, "tokens": {}}
+        return {"files": data}
+    # セキュリティ: トークンはartifactに残さない（旧形式のtokensキーを除去）
+    data.pop("tokens", None)
     return data
+
+
+def save_tokens_file(access_token, refresh_token):
+    """ワークフローのSecrets更新ステップ用にトークンを書き出す（artifact対象外）"""
+    with open(TOKENS_FILE, 'w', encoding='utf-8') as f:
+        json.dump({
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "updated_at": time.strftime('%Y-%m-%d %H:%M:%S'),
+        }, f, indent=2)
 
 
 def save_uploaded_log(log_data):
@@ -407,24 +420,14 @@ def main():
         print("Error: Need at least DA_ACCESS_TOKEN or DA_REFRESH_TOKEN")
         return 1
 
-    # Load log and check for saved tokens
+    # Load uploaded log (dedup list)
     log_data = load_uploaded_log()
-    saved_tokens = log_data.get("tokens", {})
-    if saved_tokens.get("access_token"):
-        print("Using saved access token from uploaded.json")
-        access_token = saved_tokens["access_token"]
-    if saved_tokens.get("refresh_token"):
-        refresh_token = saved_tokens["refresh_token"]
 
     # Validate / refresh token
     access_token, refresh_token = get_valid_token(access_token, refresh_token)
 
-    # Save refreshed tokens to uploaded.json for persistence
-    log_data["tokens"] = {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "updated_at": time.strftime('%Y-%m-%d %H:%M:%S'),
-    }
+    # Secrets更新ステップ用にトークンを書き出す（uploaded.json/artifactには含めない）
+    save_tokens_file(access_token, refresh_token)
     save_uploaded_log(log_data)
 
     # Download media from Google Drive
@@ -488,9 +491,7 @@ def main():
     if status == 'token_expired':
         print("\nRefreshing token and retrying...")
         access_token, refresh_token = refresh_access_token(access_token, refresh_token)
-        log_data["tokens"]["access_token"] = access_token
-        log_data["tokens"]["refresh_token"] = refresh_token
-        save_uploaded_log(log_data)
+        save_tokens_file(access_token, refresh_token)
         itemid, status = upload_to_stash(access_token, selected, title, tags, description)
 
     if not itemid:
