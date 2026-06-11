@@ -424,7 +424,12 @@ def post_link_comment(access_token, deviationid):
         return False
 
     if r.status_code == 200 and r.json().get('status') != 'error':
-        print("Patreon link comment posted.")
+        # DAが返すレンダリング済みbodyでリンク化を確認（patreon が <a> 化されたか）
+        rendered = r.json().get('body', '')
+        linkified = ('<a ' in rendered and 'patreon' in rendered.lower())
+        print(f"Patreon link comment posted. (auto-linkified: {linkified})")
+        if not linkified:
+            print(f"  Note: comment body rendered without anchor -> {rendered[:200]}")
         return True
 
     # スコープ未付与など。致命的にはしない（リンク無しでも公開は完了）。
