@@ -388,7 +388,7 @@ def publish_from_stash(access_token, itemid, is_mature=True):
     result = r.json()
     if result.get('status') == 'success':
         pub_url = result.get('url', '')
-        deviationid = result.get('deviationid', '')  # noqa: F841  (公開直後のコメント投稿で使用)
+        deviationid = result.get('deviationid', '')
         print(f"Publish success!")
         if pub_url:
             print(f"  URL: {pub_url}")
@@ -400,47 +400,9 @@ def publish_from_stash(access_token, itemid, is_mature=True):
         return None
 
 
-def post_link_comment(access_token, deviationid):
-    """公開直後の作品に Patreon リンク入りコメントを自動投稿する。
-
-    DeviantArtの説明文(artist_comments)はpublish時にtiptap変換され、
-    <a>タグも素URLもクリック可能にならない。一方コメント欄はサーバー側で
-    HTMLレンダリングされ素URLが自動リンク化されるため、クリック可能な
-    Patreon導線はコメントで確保する。
-    comment.post スコープが必要（reauth.py で付与）。
-    失敗してもアップロード自体は成功扱いのまま（非致命）。
-    """
-    if not deviationid:
-        return False
-
-    body = (
-        f"🔥 Full gallery & exclusive content → {PATREON_LINK}"
-    )
-    url = f"https://www.deviantart.com/api/v1/oauth2/comments/post/deviation/{deviationid}"
-    try:
-        r = requests.post(url, data={'access_token': access_token, 'body': body}, timeout=60)
-    except Exception as e:
-        print(f"Comment post error (non-fatal): {e}")
-        return False
-
-    if r.status_code == 200 and r.json().get('status') != 'error':
-        # DAが返すレンダリング済みbodyでリンク化を確認（patreon が <a> 化されたか）
-        rendered = r.json().get('body', '')
-        linkified = ('<a ' in rendered and 'patreon' in rendered.lower())
-        print(f"Patreon link comment posted. (auto-linkified: {linkified})")
-        if not linkified:
-            print(f"  Note: comment body rendered without anchor -> {rendered[:200]}")
-        return True
-
-    # スコープ未付与など。致命的にはしない（リンク無しでも公開は完了）。
-    try:
-        err = r.json()
-    except Exception:
-        err = r.text[:200]
-    print(f"Comment post skipped/failed (non-fatal): {r.status_code} {err}")
-    if isinstance(err, dict) and err.get('error') == 'insufficient_scope':
-        print("  -> comment.post スコープ未付与。reauth.py で再認証してください。")
-    return False
+# 注: DeviantArtのAPIは説明文・コメントの両方でリンクを剥がす（tiptap変換で
+# <a>タグ削除・素URLも非リンク化、2026-06-11に実機で確定）。よってクリック可能な
+# Patreon導線はAPI経由では作れない。プロフィールのソーシャルリンクで確保すること。
 
 
 # ============================================================
@@ -547,8 +509,6 @@ def main():
     publish_url = ''
     if result:
         publish_url = result.get('url', '')
-        # 公開直後にクリック可能なPatreonリンクをコメントで補完（説明文では不可のため）
-        post_link_comment(access_token, result.get('deviationid', ''))
     else:
         print("Warning: Uploaded to Sta.sh but publish failed.")
         print(f"  Manually publish at: https://sta.sh (itemid: {itemid})")

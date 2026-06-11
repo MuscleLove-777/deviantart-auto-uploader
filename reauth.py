@@ -16,9 +16,10 @@ print("=== DeviantArt OAuth2 再認証 ===\n")
 CLIENT_ID = input("DA_CLIENT_ID を入力: ").strip()
 CLIENT_SECRET = input("DA_CLIENT_SECRET を入力: ").strip()
 
-REDIRECT_URI = "http://localhost:8432/callback"
-# comment.post: 公開作品にPatreonリンク入りコメントを自動投稿するため（説明文ではリンク不可）
-SCOPE = "stash publish browse comment.post"
+# 注: redirect_uri はDAアプリ登録の「OAuth2 Redirect URI Whitelist」と完全一致が必須。
+# 登録値は http://localhost:8080（旧コードの :8432/callback は不一致で認証が無言で失敗していた）。
+REDIRECT_URI = "http://localhost:8080"
+SCOPE = "stash publish browse"
 REPO = "MuscleLove-777/deviantart-auto-uploader"
 
 # ============================================================
@@ -48,7 +49,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
         pass  # ログ抑制
 
 
-server = HTTPServer(("localhost", 8432), OAuthHandler)
+server = HTTPServer(("localhost", 8080), OAuthHandler)
 
 auth_url = (
     f"https://www.deviantart.com/oauth2/authorize"
