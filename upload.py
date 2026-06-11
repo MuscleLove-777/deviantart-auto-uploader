@@ -39,17 +39,16 @@ ML_BACKLINK_POOL = [
 
 
 def build_backlink_block():
-    """MuscleLove バックリンクHTMLブロック（ランダム2件、冪等マーカー付き）"""
+    """MuscleLove バックリンク（ランダム2件）
+    注意: DeviantArtはstash/publish時に説明文をtiptap形式へ変換し、
+    <a>タグ・<br/>・HTMLコメントを全て剥がす（リンク情報が消える）。
+    そのため素のURLテキストで記載する。
+    """
     try:
         k = min(2, len(ML_BACKLINK_POOL))
         selected = random.sample(ML_BACKLINK_POOL, k=k)
-        items = " | ".join([f'<a href="{u}">{n}</a>' for u, n in selected])
-        return (
-            "<br/>"
-            "<!-- ML_BACKLINK -->"
-            f"🔗 Related: {items}"
-            "<!-- /ML_BACKLINK -->"
-        )
+        items = " | ".join([f"{n} → {u}" for u, n in selected])
+        return f"🔗 Related: {items}"
     except Exception:
         return ""
 
@@ -162,9 +161,7 @@ def refresh_access_token(access_token, refresh_token):
     new_refresh_token = token_data.get('refresh_token', refresh_token)
 
     print("Token refresh successful!")
-    # Print new tokens so they can be captured in workflow logs for secret updates
-    print(f"::notice::NEW_ACCESS_TOKEN={new_access_token}")
-    print(f"::notice::NEW_REFRESH_TOKEN={new_refresh_token}")
+    # セキュリティ: トークン値はログに出力しない（publicリポジトリのログは誰でも閲覧可能）
 
     return new_access_token, new_refresh_token
 
@@ -294,8 +291,11 @@ def build_description(file_path, tags):
 
     hashtags = ' '.join([f'#{t.replace(" ", "")}' for t in tags[:15]])
 
-    description = f'🔥 More content on Patreon → <a href="{PATREON_LINK}">MuscleLove</a>'
-    description = description + " " + build_backlink_block()
+    # DAはHTMLアンカーを剥がすため、素のURLをそのまま記載する
+    description = f'🔥 More content on Patreon → {PATREON_LINK}'
+    backlinks = build_backlink_block()
+    if backlinks:
+        description = description + "\n\n" + backlinks
 
     return category, description
 
