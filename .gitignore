@@ -17,3 +17,8 @@ service_account*.json
 *.cookie
 *_cookies.json
 cookies.txt
+
+# variant feedback loop: これらは *.json 無視の例外として明示的に追跡する
+!content_pool.json
+!posted_log.json
+!engagement.json

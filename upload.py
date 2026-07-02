@@ -8,6 +8,18 @@ import sys, json, os, random, time
 import requests
 import gdown
 
+# 変種バンディット（重み付き抽選＋投稿ログ）。無くても一様ランダムで動く。
+try:
+    from variant_bandit import pick as bandit_pick, with_utm_content, log_post
+except Exception:
+    def bandit_pick(kind, options, rng=random):
+        o = rng.choice(options)
+        return o, ""
+    def with_utm_content(url, key):
+        return url
+    def log_post(platform, record):
+        pass
+
 # ============================================================
 # 設定
 # ============================================================
@@ -39,16 +51,20 @@ ML_BACKLINK_POOL = [
 ]
 
 
-def build_backlink_block():
+def build_backlink_block(variant_key=""):
     """MuscleLove バックリンク（ランダム2件）
     注意: DeviantArtはstash/publish時に説明文をtiptap形式へ変換し、
     <a>タグ・<br/>・HTMLコメントを全て剥がす（リンク情報が消える）。
-    そのため素のURLテキストで記載する。
+    そのため素のURLテキストで記載する。utm付きなら手動コピー流入も変種単位で測れる。
     """
     try:
         k = min(2, len(ML_BACKLINK_POOL))
         selected = random.sample(ML_BACKLINK_POOL, k=k)
-        items = " | ".join([f"{n} → {u}" for u, n in selected])
+        def _track(u):
+            sep = "&" if "?" in u else "?"
+            u = f"{u}{sep}utm_source=deviantart&utm_medium=autopost"
+            return with_utm_content(u, variant_key)
+        items = " | ".join([f"{n} → {_track(u)}" for u, n in selected])
         return f"🔗 Related: {items}"
     except Exception:
         return ""
@@ -293,7 +309,7 @@ def sanitize_category(name, max_len=30):
     return name if name else "Muscle"
 
 
-def build_description(file_path, tags):
+def build_description(file_path, tags, variant_key=""):
     """Patreonリンク付き説明文を生成"""
     parts = file_path.replace('\\', '/').split('/')
     category = "Muscle"
@@ -305,8 +321,9 @@ def build_description(file_path, tags):
     hashtags = ' '.join([f'#{t.replace(" ", "")}' for t in tags[:15]])
 
     # DAはHTMLアンカーを剥がすため、素のURLをそのまま記載する
-    description = f'🔥 More content on Patreon → {PATREON_LINK}'
-    backlinks = build_backlink_block()
+    patreon_link = with_utm_content(PATREON_LINK, variant_key)
+    description = f'🔥 More content on Patreon → {patreon_link}'
+    backlinks = build_backlink_block(variant_key)
     if backlinks:
         description = description + "\n\n" + backlinks
 
@@ -462,6 +479,21 @@ def main():
     # Generate tags and description
     tags = generate_tags(selected)
 
+    # content_pool（autonomyが毎日最適化）から mature レーンのタグ/NG語を取り込む
+    try:
+        from pool_loader import as_insights
+        ins = as_insights("mature_muscle", platform="deviantart")
+        seen = {t.lower() for t in tags}
+        for t in ins.get("recommended_tags", []):
+            if t.lower() not in seen:
+                tags.append(t)
+                seen.add(t.lower())
+        avoid = {a.lower() for a in ins.get("avoid_tags", [])}
+        if avoid:
+            tags = [t for t in tags if t.lower() not in avoid]
+    except Exception as e:
+        print(f"pool_loader skipped: {e}")
+
     # Google Trendsからトレンドタグを追加
     from trending import get_trending_tags
     trend_tags = get_trending_tags(max_tags=5)
@@ -472,10 +504,14 @@ def main():
                 tags.append(t)
                 seen.add(t.lower())
 
-    category, description = build_description(selected, tags)
+    # タイトル：バンディット抽選（反応の良いタイトル傾向が自動で増える）
+    template, title_vid = bandit_pick("deviantart.title", TITLE_TEMPLATES)
+    variant_key = f"ti{title_vid}" if title_vid else ""
+    print(f"Title variant: {title_vid or '(uniform)'}")
 
-    # タイトル：カテゴリ + ランダムテンプレート（UTF-8で最大50バイト）
-    template = random.choice(TITLE_TEMPLATES)
+    category, description = build_description(selected, tags, variant_key)
+
+    # UTF-8で最大50バイト
     title = template
     if len(title.encode('utf-8')) > 50:
         title = template  # カテゴリが長すぎる場合はテンプレートのみ
@@ -522,6 +558,16 @@ def main():
         'uploaded_at': time.strftime('%Y-%m-%d %H:%M:%S'),
     })
     save_uploaded_log(log_data)
+
+    # 変種ログ（posted_log.json、gitで永続化 → autonomyが反応と結合して重み更新）
+    deviationid = (result or {}).get('deviationid', '')
+    log_post("deviantart", {
+        "deviationid": str(deviationid),
+        "publish_url": publish_url,
+        "file": fname,
+        "variants": {"deviantart.title": title_vid},
+        "tags_count": len(tags),
+    })
 
     remaining = len(available) - 1
     print(f"\nDone! Remaining: {remaining}")

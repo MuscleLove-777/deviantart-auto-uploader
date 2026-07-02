@@ -170,6 +170,25 @@ jobs:
             echo "DA_REFRESH_TOKEN updated"
           fi
 
+      - name: Collect engagement and commit variant logs
+        if: always()
+        continue-on-error: true
+        env:
+          DA_CLIENT_ID: ${{ secrets.DA_CLIENT_ID }}
+          DA_CLIENT_SECRET: ${{ secrets.DA_CLIENT_SECRET }}
+          DA_ACCESS_TOKEN: ${{ secrets.DA_ACCESS_TOKEN }}
+          DA_REFRESH_TOKEN: ${{ secrets.DA_REFRESH_TOKEN }}
+        run: |
+          python collect_engagement.py || true
+          rm -f tokens.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add posted_log.json 2>/dev/null || true
+          git add engagement.json 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "auto: variant log + engagement [skip ci]"
+          git pull --rebase --autostash || true
+          git push || true
+
       - name: LINE notify on failure
         if: steps.attempt1.outcome == 'failure' && (steps.attempt2.outcome == 'failure' || steps.attempt2.outcome == 'skipped') && (steps.attempt3.outcome == 'failure' || steps.attempt3.outcome == 'skipped')
         env:
