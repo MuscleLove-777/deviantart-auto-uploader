@@ -14,15 +14,30 @@ import time
 
 import requests
 
-from upload import DA_ACCESS_TOKEN, DA_REFRESH_TOKEN, get_valid_token
+from upload import DA_ACCESS_TOKEN, DA_REFRESH_TOKEN, TOKENS_FILE, get_valid_token
 
 OUT_PATH = "engagement.json"
 MAX_DEVIATIONS = 72  # 直近72作品分を追跡
 PAGE_SIZE = 24
 
 
+def load_run_tokens():
+    """同一run内で upload.py が書いた tokens.json（リフレッシュ済み）を優先する。
+    Secrets の DA_ACCESS_TOKEN/DA_REFRESH_TOKEN は run 開始時点の値のため、
+    upload.py が refresh_token を消費済みだと必ず invalid_request になる。"""
+    try:
+        with open(TOKENS_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        at, rt = d.get("access_token", ""), d.get("refresh_token", "")
+        if at or rt:
+            return at, rt
+    except Exception:
+        pass
+    return DA_ACCESS_TOKEN, DA_REFRESH_TOKEN
+
+
 def main():
-    access_token, _ = get_valid_token(DA_ACCESS_TOKEN, DA_REFRESH_TOKEN)
+    access_token, _ = get_valid_token(*load_run_tokens())
     if not access_token:
         print("skip: no valid DeviantArt token")
         return 0

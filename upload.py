@@ -37,6 +37,17 @@ ALL_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 MAX_FILE_SIZE = 200 * 1024 * 1024  # DeviantArt limit: 200MB
 UPLOADED_LOG = "uploaded.json"
 TOKENS_FILE = "tokens.json"  # Secrets更新用（artifactにはアップロードしない・gitignore対象）
+STATUS_FILE = "run_status.txt"  # ワークフローのLINE通知が読む実行結果（posted/no_content/no_media/error）
+
+
+def write_status(status, remaining=-1):
+    """実行結果をワークフロー通知用に書き出す。「成功=投稿された」とは限らない
+    （在庫切れでもexit 0のため）ので、通知文の出し分けはこのファイルで行う。"""
+    try:
+        with open(STATUS_FILE, 'w', encoding='utf-8') as f:
+            f.write(f"status={status}\nremaining={remaining}\n")
+    except Exception:
+        pass
 
 # --- MuscleLove バックリンクプール（DeviantArt: アダルト+フィットネス両OK） ---
 ML_BACKLINK_POOL = [
@@ -456,6 +467,7 @@ def main():
     media_files = download_media()
     if not media_files:
         print("No media files found!")
+        write_status("no_media")
         return 0
 
     # Filter out already uploaded (skip filter if UPLOAD_ALL is set)
@@ -468,6 +480,7 @@ def main():
         available = [f for f in media_files if os.path.basename(f) not in uploaded_names]
         if not available:
             print("All files already uploaded!")
+            write_status("no_content", 0)
             return 0
         print(f"\nAvailable: {len(available)} / Total: {len(media_files)}")
 
@@ -537,6 +550,7 @@ def main():
 
     if not itemid:
         print("Upload failed!")
+        write_status("error")
         return 1
 
     # Step 2: Publish from Sta.sh
@@ -570,6 +584,7 @@ def main():
     })
 
     remaining = len(available) - 1
+    write_status("posted", remaining)
     print(f"\nDone! Remaining: {remaining}")
     return 0
 

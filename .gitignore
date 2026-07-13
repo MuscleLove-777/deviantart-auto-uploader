@@ -22,3 +22,9 @@ cookies.txt
 !content_pool.json
 !posted_log.json
 !engagement.json
+# 重複防止ログもgitで永続化（artifactは90日で失効するため）
+!uploaded.json
+
+# 実行時の作業ファイル
+run_status.txt
+media/
