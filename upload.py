@@ -250,15 +250,26 @@ def save_uploaded_log(log_data):
 # ============================================================
 
 def download_media():
-    """Google Driveフォルダからメディアファイルをダウンロードする"""
+    """Google Driveフォルダ（= refill_deviantart_queue.py が補充するキュー）から
+    メディアファイルをダウンロードする。
+
+    GDRIVE_FOLDER_ID には大元プール(mldrive:DeviantArt, 18,000枚超)ではなく
+    小さなキュー(_deviantart_queue)を指定すること。大元を直接指すと Google のレート制限で
+    gdown が途中停止し、毎回同じ先頭数十枚しか取れず「在庫切れ」と誤判定する
+    （2026-07-19 の全ジョブ失敗の原因）。
+    """
     dl_dir = "media"
     os.makedirs(dl_dir, exist_ok=True)
     url = f"https://drive.google.com/drive/folders/{GDRIVE_FOLDER_ID}"
     print(f"Downloading from Google Drive: {url}")
+    downloaded = None
     try:
-        gdown.download_folder(url, output=dl_dir, quiet=False)
+        downloaded = gdown.download_folder(url, output=dl_dir, quiet=False)
     except Exception as e:
-        print(f"Download error: {e}")
+        # 握り潰すと「取得できた分だけ」で在庫判定してしまうため必ず可視化する
+        print(f"::warning::Drive download error (部分取得の可能性): {e}")
+    if downloaded is not None:
+        print(f"gdown downloaded: {len(downloaded)} files")
 
     files = []
     for root, dirs, filenames in os.walk(dl_dir):

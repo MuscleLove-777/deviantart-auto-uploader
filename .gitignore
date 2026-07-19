@@ -28,3 +28,7 @@ cookies.txt
 # 実行時の作業ファイル
 run_status.txt
 media/
+
+# キュー補充（ローカル実行のみ）: rclone認証情報とログはコミットしない
+.rclone_mldrive.conf
+queue_refill.log
