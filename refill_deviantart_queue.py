@@ -57,6 +57,15 @@ QUEUE_ID = "1VbYUxS12NOxGtblO3nDk7Ds5nU6937gL"  # = GDRIVE_FOLDER_ID
 TARGET = 40
 MAX_SIZE = 200 * 1024 * 1024  # DeviantArt上限
 EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".mp4", ".mov", ".webm")
+# プール内には画像生成プロンプトをそのままファイル名にした長大な名前
+# （例: "{{{from side}}},{{{{armpit fucking}}}}, ... s-665900840.png"）が混在する。
+# これらは gdown のダウンロード中に例外を投げてフォルダ取得を途中で止めてしまい、
+# 「部分取得 → 在庫切れ誤判定」を再発させるため、補充候補から除外する。
+MAX_NAME_LEN = 100
+BAD_NAME_CHARS = set('{}[]<>:"|?*\\')
+# 相対パス長も制限する。runner側(/home/runner/work/... ≒72文字)では余裕があるが、
+# 極端に深い階層は取り違え・検証性の面で避ける。
+MAX_RELPATH_LEN = 180
 # 他プラットフォームのキューは deep pool から除外する
 EXCLUDE_PREFIXES = (QUEUE_NAME + "/",)
 EXCLUDE_SUBSTR = ("_ameblo_queue/",)
@@ -124,6 +133,13 @@ def base(p):
     return p.split("/")[-1]
 
 
+def name_ok(p):
+    """gdownが安全に扱えるファイル名か（長すぎる/特殊文字入りのプロンプト名を弾く）。"""
+    b = base(p)
+    return (len(b) <= MAX_NAME_LEN and len(p) <= MAX_RELPATH_LEN
+            and not (set(b) & BAD_NAME_CHARS))
+
+
 def posted_set():
     """origin/master の uploaded.json（投稿機が毎回pushする正本）から投稿済みbasenameを取る。"""
     subprocess.run(["git", "-C", str(DA_DIR), "fetch", "-q", "origin", "master"],
@@ -149,17 +165,17 @@ def main():
     qfiles = lsf(QUEUE)
     log(f"queue現在={len(qfiles)}  posted記録={len(posted)}")
 
-    # 1) 投稿済みをキューから削除
+    # 1) 投稿済み・gdown危険名をキューから削除
     pruned = 0
     for qf in qfiles:
-        if base(qf) in posted:
+        if base(qf) in posted or not name_ok(qf):
             r = rclone("deletefile", f"{QUEUE}/{qf}")
             if r.returncode == 0:
                 pruned += 1
             else:
                 log(f"  delete失敗 {qf}: {(r.stderr or '')[:100]}")
-    qfiles = [q for q in qfiles if base(q) not in posted]
-    log(f"投稿済み{pruned}枚プルーン → queue={len(qfiles)}")
+    qfiles = [q for q in qfiles if base(q) not in posted and name_ok(q)]
+    log(f"投稿済み/危険名{pruned}枚プルーン → queue={len(qfiles)}")
 
     need = TARGET - len(qfiles)
     if need <= 0:
@@ -173,7 +189,8 @@ def main():
     bn_count = collections.Counter(base(p) for p in allp)
     qbn = {base(q) for q in qfiles}
     cand = [p for p in allp
-            if base(p) not in posted and base(p) not in qbn and bn_count[base(p)] == 1]
+            if base(p) not in posted and base(p) not in qbn
+            and bn_count[base(p)] == 1 and name_ok(p)]
     log(f"pool={len(allp)}  補充候補={len(cand)}")
     if not cand:
         log("⚠ 補充候補なし(プール枯渇)。mldrive:DeviantArt へ新規画像追加が必要。")
