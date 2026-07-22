@@ -1,0 +1,28 @@
+name: Rescue cancelled runs
+
+# GitHub側障害（ランナー未割当等）でキャンセルされたランを自動リランする。
+# 2026-07-22 JST04:30便が "job was not acquired by Runner" で15分キャンセルされた対策。
+# 対象は conclusion == 'cancelled' のみ（failure は在庫切れ等の要対応シグナルなので触らない）。
+# run_attempt < 3 で最大2回まで再試行し、無限ループを防ぐ。
+
+on:
+  workflow_run:
+    workflows: ["DeviantArt Auto Upload"]
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  rerun:
+    if: >-
+      github.event.workflow_run.conclusion == 'cancelled' &&
+      github.event.workflow_run.run_attempt < 3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rerun cancelled workflow run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Rerunning cancelled run ${{ github.event.workflow_run.id }} (attempt ${{ github.event.workflow_run.run_attempt }})"
+          gh run rerun ${{ github.event.workflow_run.id }} --repo ${{ github.repository }}
