@@ -448,22 +448,11 @@ def publish_from_stash(access_token, itemid, is_mature=True):
 # メイン
 # ============================================================
 
-def _cadence_slots():
-    """自動運営機構(channel_weights)が決めた今回の投稿本数。
-    勝ち媒体は平均1.25本/実行へ増枠、流入ゼロ継続は半減、停止中は0本。
-    プールが無ければ1本＝従来挙動（絶対に死なない）。"""
-    try:
-        import variant_bandit
-        return variant_bandit.posts_this_run("deviantart")
-    except Exception:
-        return 1
-
-
 def main():
-    _slots = _cadence_slots()
-    if _slots < 1:
-        print("[cadence] 自動頻度調整により今回はスキップします")
-        return 0
+    # The workflow schedule is the DeviantArt safety-rate boundary (two runs/day).
+    # Do not apply the probabilistic cross-channel cadence here: a 0-slot result
+    # silently reduced uploads and left run_status.txt unset, so a healthy run was
+    # later reported as an unknown failure. Content variants remain bandit-driven.
     print("=== DeviantArt Auto Uploader (GitHub Actions) ===\n")
 
     if not all([DA_CLIENT_ID, DA_CLIENT_SECRET, GDRIVE_FOLDER_ID]):
