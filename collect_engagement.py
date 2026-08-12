@@ -14,7 +14,13 @@ import time
 
 import requests
 
-from upload import DA_ACCESS_TOKEN, DA_REFRESH_TOKEN, TOKENS_FILE, get_valid_token
+from upload import (
+    AuthenticationError,
+    DA_ACCESS_TOKEN,
+    DA_REFRESH_TOKEN,
+    TOKENS_FILE,
+    get_valid_token,
+)
 
 OUT_PATH = "engagement.json"
 MAX_DEVIATIONS = 72  # 直近72作品分を追跡
@@ -37,7 +43,11 @@ def load_run_tokens():
 
 
 def main():
-    access_token, _ = get_valid_token(*load_run_tokens())
+    try:
+        access_token, _ = get_valid_token(*load_run_tokens())
+    except AuthenticationError as e:
+        print(f"skip: DeviantArt authentication unavailable: {e}")
+        return 0
     if not access_token:
         print("skip: no valid DeviantArt token")
         return 0

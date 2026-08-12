@@ -3,18 +3,19 @@
 DeviantArt OAuth2 再認証スクリプト
 ローカルサーバーでOAuthコールバックを自動キャッチし、GitHub Secretsを更新する
 """
-import webbrowser
-import requests
+import getpass
 import subprocess
 import sys
+import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
-import threading
+from urllib.parse import parse_qs, urlencode, urlparse
+
+import requests
 
 # ============================================================
 print("=== DeviantArt OAuth2 再認証 ===\n")
 CLIENT_ID = input("DA_CLIENT_ID を入力: ").strip()
-CLIENT_SECRET = input("DA_CLIENT_SECRET を入力: ").strip()
+CLIENT_SECRET = getpass.getpass("DA_CLIENT_SECRET を入力（画面には表示されません）: ").strip()
 
 # 注: redirect_uri はDAアプリ登録の「OAuth2 Redirect URI Whitelist」と完全一致が必須。
 # 登録値は http://localhost:8080（旧コードの :8432/callback は不一致で認証が無言で失敗していた）。
@@ -50,17 +51,17 @@ class OAuthHandler(BaseHTTPRequestHandler):
 
 
 server = HTTPServer(("localhost", 8080), OAuthHandler)
+server.timeout = 300
 
-auth_url = (
-    f"https://www.deviantart.com/oauth2/authorize"
-    f"?response_type=code"
-    f"&client_id={CLIENT_ID}"
-    f"&redirect_uri={REDIRECT_URI}"
-    f"&scope={SCOPE}"
-)
+auth_url = "https://www.deviantart.com/oauth2/authorize?" + urlencode({
+    "response_type": "code",
+    "client_id": CLIENT_ID,
+    "redirect_uri": REDIRECT_URI,
+    "scope": SCOPE,
+})
 
 print(f"ブラウザで認証ページを開きます...")
-print(f"(ローカルサーバー http://localhost:8432 でコールバック待機中)\n")
+print(f"(ローカルサーバー {REDIRECT_URI} で最大5分コールバック待機中)\n")
 webbrowser.open(auth_url)
 
 # 1リクエストだけ受け取って終了
@@ -72,19 +73,23 @@ if not code:
     print("認証コードの取得に失敗しました。")
     sys.exit(1)
 
-print(f"認証コード取得: {code[:20]}...")
+print("認証コード取得成功")
 
 # ============================================================
 # Step 2: コードをトークンに交換
 # ============================================================
 print("トークンを取得中...")
-r = requests.post("https://www.deviantart.com/oauth2/token", data={
-    'grant_type': 'authorization_code',
-    'client_id': CLIENT_ID,
-    'client_secret': CLIENT_SECRET,
-    'code': code,
-    'redirect_uri': REDIRECT_URI,
-})
+try:
+    r = requests.post("https://www.deviantart.com/oauth2/token", data={
+        'grant_type': 'authorization_code',
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+        'code': code,
+        'redirect_uri': REDIRECT_URI,
+    }, timeout=30)
+except requests.RequestException as e:
+    print(f"トークン取得通信エラー: {e}")
+    sys.exit(1)
 
 if r.status_code != 200:
     print(f"エラー: {r.status_code} {r.text}")
@@ -98,9 +103,7 @@ if 'access_token' not in data:
 access_token = data['access_token']
 refresh_token = data.get('refresh_token', '')
 
-print(f"取得成功!")
-print(f"  Access Token:  {access_token[:20]}...")
-print(f"  Refresh Token: {refresh_token[:20]}...")
+print("トークン取得成功（値は安全のため表示しません）")
 
 # ============================================================
 # Step 3: GitHub Secrets を更新
@@ -118,16 +121,7 @@ for name, value in [("DA_ACCESS_TOKEN", access_token), ("DA_REFRESH_TOKEN", refr
         print(f"  ❌ {name} 更新失敗: {result.stderr}")
 
 # ============================================================
-# Step 4: ワークフロー再実行
+# Step 4: 完了（実投稿を伴うワークフローは自動起動しない）
 # ============================================================
-print("\nワークフローを再実行中...")
-result = subprocess.run(
-    ["gh", "workflow", "run", "upload.yml", "-R", REPO],
-    capture_output=True, text=True
-)
-if result.returncode == 0:
-    print("  ✅ ワークフロー再実行トリガー完了!")
-else:
-    print(f"  ❌ 再実行失敗: {result.stderr}")
-
-print("\n=== 完了 ===")
+print("\n=== 再認証完了 ===")
+print("実投稿を避けるためワークフローは起動していません。次回の定期実行で確認します。")

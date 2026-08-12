@@ -37,7 +37,11 @@ ALL_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 MAX_FILE_SIZE = 200 * 1024 * 1024  # DeviantArt limit: 200MB
 UPLOADED_LOG = "uploaded.json"
 TOKENS_FILE = "tokens.json"  # Secrets更新用（artifactにはアップロードしない・gitignore対象）
-STATUS_FILE = "run_status.txt"  # ワークフローのLINE通知が読む実行結果（posted/no_content/no_media/error）
+STATUS_FILE = "run_status.txt"  # ワークフローが読む実行結果（posted/no_content/no_media/auth_error/error）
+
+
+class AuthenticationError(RuntimeError):
+    """OAuth token validation/refresh failed and requires operator attention."""
 
 
 def write_status(status, remaining=-1):
@@ -165,25 +169,30 @@ TITLE_TEMPLATES = [
 def refresh_access_token(access_token, refresh_token):
     """refresh_tokenを使ってaccess_tokenを更新する"""
     if not refresh_token:
-        print("Error: No refresh_token available.")
-        return access_token, refresh_token
+        raise AuthenticationError("No refresh_token available")
 
     print("Refreshing access token...")
-    r = requests.post("https://www.deviantart.com/oauth2/token", data={
-        'grant_type': 'refresh_token',
-        'client_id': DA_CLIENT_ID,
-        'client_secret': DA_CLIENT_SECRET,
-        'refresh_token': refresh_token,
-    })
+    try:
+        r = requests.post("https://www.deviantart.com/oauth2/token", data={
+            'grant_type': 'refresh_token',
+            'client_id': DA_CLIENT_ID,
+            'client_secret': DA_CLIENT_SECRET,
+            'refresh_token': refresh_token,
+        }, timeout=30)
+    except requests.RequestException as e:
+        raise AuthenticationError(f"Token refresh request failed: {e}") from e
 
     if r.status_code != 200:
-        print(f"Token refresh failed: {r.status_code} {r.text}")
-        return access_token, refresh_token
+        try:
+            error_data = r.json()
+            detail = error_data.get('error_description') or error_data.get('error') or 'unknown error'
+        except ValueError:
+            detail = 'non-JSON response'
+        raise AuthenticationError(f"Token refresh failed: HTTP {r.status_code}: {detail}")
 
     token_data = r.json()
     if 'access_token' not in token_data:
-        print(f"Token refresh failed: {token_data}")
-        return access_token, refresh_token
+        raise AuthenticationError("Token refresh response did not include access_token")
 
     new_access_token = token_data['access_token']
     new_refresh_token = token_data.get('refresh_token', refresh_token)
@@ -200,8 +209,11 @@ def get_valid_token(access_token, refresh_token):
         return refresh_access_token(access_token, refresh_token)
 
     # トークンの有効性をチェック
-    r = requests.get("https://www.deviantart.com/api/v1/oauth2/user/whoami",
-                      params={'access_token': access_token})
+    try:
+        r = requests.get("https://www.deviantart.com/api/v1/oauth2/user/whoami",
+                         params={'access_token': access_token}, timeout=30)
+    except requests.RequestException as e:
+        raise AuthenticationError(f"Token validation request failed: {e}") from e
     if r.status_code == 200:
         user = r.json().get('username', 'unknown')
         print(f"Auth OK: {user}")
@@ -237,6 +249,33 @@ def save_tokens_file(access_token, refresh_token):
             "refresh_token": refresh_token,
             "updated_at": time.strftime('%Y-%m-%d %H:%M:%S'),
         }, f, indent=2)
+
+
+def load_run_tokens(access_token, refresh_token):
+    """Prefer tokens rotated earlier in the same workflow run.
+
+    GitHub Secrets are snapshotted for the job. If attempt 1 rotates a refresh
+    token but fails later for a transient reason, attempt 2 must use tokens.json
+    instead of retrying the now-consumed secret value.
+    """
+    try:
+        with open(TOKENS_FILE, encoding='utf-8') as f:
+            token_data = json.load(f)
+        run_access = token_data.get('access_token', '')
+        run_refresh = token_data.get('refresh_token', '')
+        if run_access or run_refresh:
+            return run_access, run_refresh
+    except (OSError, ValueError, TypeError):
+        pass
+    return access_token, refresh_token
+
+
+def discard_run_tokens():
+    """Prevent a failed refresh from being written back to GitHub Secrets."""
+    try:
+        os.remove(TOKENS_FILE)
+    except FileNotFoundError:
+        pass
 
 
 def save_uploaded_log(log_data):
@@ -461,8 +500,7 @@ def main():
         print("Required: DA_ACCESS_TOKEN or DA_REFRESH_TOKEN")
         return 1
 
-    access_token = DA_ACCESS_TOKEN
-    refresh_token = DA_REFRESH_TOKEN
+    access_token, refresh_token = load_run_tokens(DA_ACCESS_TOKEN, DA_REFRESH_TOKEN)
 
     if not access_token and not refresh_token:
         print("Error: Need at least DA_ACCESS_TOKEN or DA_REFRESH_TOKEN")
@@ -471,8 +509,16 @@ def main():
     # Load uploaded log (dedup list)
     log_data = load_uploaded_log()
 
-    # Validate / refresh token
-    access_token, refresh_token = get_valid_token(access_token, refresh_token)
+    # Validate / refresh token. Fail before downloading media when reauthorization
+    # is required; retrying with the same invalid refresh token cannot recover.
+    try:
+        access_token, refresh_token = get_valid_token(access_token, refresh_token)
+    except AuthenticationError as e:
+        print(f"Authentication failed: {e}")
+        print("Action required: run reauth.py locally to replace the GitHub OAuth secrets.")
+        discard_run_tokens()
+        write_status("auth_error")
+        return 2
 
     # Secrets更新ステップ用にトークンを書き出す（uploaded.json/artifactには含めない）
     save_tokens_file(access_token, refresh_token)
@@ -559,7 +605,14 @@ def main():
     # Token expired -> refresh and retry
     if status == 'token_expired':
         print("\nRefreshing token and retrying...")
-        access_token, refresh_token = refresh_access_token(access_token, refresh_token)
+        try:
+            access_token, refresh_token = refresh_access_token(access_token, refresh_token)
+        except AuthenticationError as e:
+            print(f"Authentication failed: {e}")
+            print("Action required: run reauth.py locally to replace the GitHub OAuth secrets.")
+            discard_run_tokens()
+            write_status("auth_error")
+            return 2
         save_tokens_file(access_token, refresh_token)
         itemid, status = upload_to_stash(access_token, selected, title, tags, description)
 

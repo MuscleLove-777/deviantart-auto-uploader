@@ -10,6 +10,12 @@ on:
 permissions:
   contents: write
 
+# DeviantArt refresh tokens rotate. Never let a manual run and a scheduled run
+# consume the same token concurrently.
+concurrency:
+  group: deviantart-auto-upload
+  cancel-in-progress: false
+
 jobs:
   upload:
     runs-on: ubuntu-latest
@@ -41,7 +47,16 @@ jobs:
           DA_ACCESS_TOKEN: ${{ secrets.DA_ACCESS_TOKEN }}
           DA_REFRESH_TOKEN: ${{ secrets.DA_REFRESH_TOKEN }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
-        run: python upload.py
+        run: |
+          set +e
+          python upload.py
+          RC=$?
+          if grep -q '^status=auth_error$' run_status.txt 2>/dev/null; then
+            echo "retryable=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "retryable=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$RC"
 
       - name: Save tokens and log (attempt 1)
         if: always() && steps.attempt1.outcome != 'skipped'
@@ -76,12 +91,12 @@ jobs:
           fi
 
       - name: Wait before retry 2
-        if: steps.attempt1.outcome == 'failure'
+        if: steps.attempt1.outcome == 'failure' && steps.attempt1.outputs.retryable == 'true'
         run: echo "Attempt 1 failed. Waiting 60s..." && sleep 60
 
       - name: Run upload (attempt 2)
         id: attempt2
-        if: steps.attempt1.outcome == 'failure'
+        if: steps.attempt1.outcome == 'failure' && steps.attempt1.outputs.retryable == 'true'
         continue-on-error: true
         env:
           DA_CLIENT_ID: ${{ secrets.DA_CLIENT_ID }}
@@ -89,7 +104,16 @@ jobs:
           DA_ACCESS_TOKEN: ${{ secrets.DA_ACCESS_TOKEN }}
           DA_REFRESH_TOKEN: ${{ secrets.DA_REFRESH_TOKEN }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
-        run: python upload.py
+        run: |
+          set +e
+          python upload.py
+          RC=$?
+          if grep -q '^status=auth_error$' run_status.txt 2>/dev/null; then
+            echo "retryable=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "retryable=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$RC"
 
       - name: Save tokens and log (attempt 2)
         if: always() && steps.attempt2.outcome != 'skipped'
@@ -124,12 +148,12 @@ jobs:
           fi
 
       - name: Wait before retry 3
-        if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
+        if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure' && steps.attempt2.outputs.retryable == 'true'
         run: echo "Attempt 2 failed. Waiting 120s..." && sleep 120
 
       - name: Run upload (attempt 3)
         id: attempt3
-        if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
+        if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure' && steps.attempt2.outputs.retryable == 'true'
         env:
           DA_CLIENT_ID: ${{ secrets.DA_CLIENT_ID }}
           DA_CLIENT_SECRET: ${{ secrets.DA_CLIENT_SECRET }}
@@ -216,6 +240,10 @@ jobs:
               ;;
             no_media)
               echo "::error::Driveからファイルを取得できず（フォルダ空 or ダウンロード失敗）"
+              exit 1
+              ;;
+            auth_error)
+              echo "::error::DeviantArt OAuth認証切れ。ローカルで reauth.py を実行し、GitHub Secretsを更新してください"
               exit 1
               ;;
             *)
