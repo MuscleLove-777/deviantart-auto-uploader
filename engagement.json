@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-10-20 12:50:55",
+ "updated_at": "2026-10-20 22:30:12",
  "deviations": {
   "BFA02608-2BC7-0371-0B2F-9B078F485318": {
    "favourites": 6,
@@ -1808,11 +1808,18 @@
    "published_time": "1792450802"
   },
   "E431F789-4A7C-5AC0-B189-E4D29CDF84C0": {
-   "favourites": 0,
+   "favourites": 2,
    "comments": 0,
    "url": "https://www.deviantart.com/muslcelove/art/Crush-Everything-%F0%9F%92%AA-1399966170",
    "title": "Crush Everything 💪",
    "published_time": "1792500651"
+  },
+  "2652B4F7-1FA2-1B23-1012-285E1621A373": {
+   "favourites": 0,
+   "comments": 0,
+   "url": "https://www.deviantart.com/muslcelove/art/Art-in-Motion-%F0%9F%94%A5-1400149754",
+   "title": "Art in Motion 🔥",
+   "published_time": "1792535408"
   }
  }
 }
