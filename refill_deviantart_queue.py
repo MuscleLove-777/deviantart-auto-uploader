@@ -198,13 +198,11 @@ def main():
     random.shuffle(cand)
     picks = cand[:need]
 
-    ff = Path(tempfile.mktemp(suffix=".txt"))
-    ff.write_text("\n".join(picks), encoding="utf-8")
-    r = rclone("copy", REMOTE_ROOT, QUEUE, "--files-from", str(ff))
-    try:
-        ff.unlink()
-    except Exception:
-        pass
+    with tempfile.TemporaryDirectory(prefix="deviantart-refill-") as temporary_dir:
+        ff = Path(temporary_dir) / "files.txt"
+        with ff.open("x", encoding="utf-8") as stream:
+            stream.write("\n".join(picks))
+        r = rclone("copy", REMOTE_ROOT, QUEUE, "--files-from", str(ff))
     if r.returncode != 0:
         log(f"  補充copy失敗: {(r.stderr or '')[:160]}")
         return 1
