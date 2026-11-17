@@ -3,6 +3,8 @@
 DeviantArt自動アップロード（GitHub Actions用）
 Google Driveからダウンロード → ランダム1ファイルをSta.sh経由でアップロード・公開
 """
+from publication_evidence import record_publication_result
+from description_links import build_canonical_description
 import sys, json, os, random, time
 
 import requests
@@ -37,11 +39,45 @@ ALL_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 MAX_FILE_SIZE = 200 * 1024 * 1024  # DeviantArt limit: 200MB
 UPLOADED_LOG = "uploaded.json"
 TOKENS_FILE = "tokens.json"  # Secrets更新用（artifactにはアップロードしない・gitignore対象）
-STATUS_FILE = "run_status.txt"  # ワークフローが読む実行結果（posted/no_content/no_media/auth_error/error）
+STATUS_FILE = "run_status.txt"  # posted/no_content/no_media/auth_error/service_error/error
 
 
 class AuthenticationError(RuntimeError):
     """OAuth token validation/refresh failed and requires operator attention."""
+
+
+class ServiceUnavailableError(RuntimeError):
+    """The API could not establish auth state; preserve tokens for a bounded retry."""
+
+
+def auth_response_data(response, operation):
+    """Do not interpret service failures or malformed responses as expired tokens.
+
+    Never include response bodies or request exception text: they can contain
+    credentials. Only explicit OAuth failures require operator attention.
+    """
+    status = response.status_code
+    if status in (408, 425, 429) or status >= 500:
+        raise ServiceUnavailableError(f"{operation}: HTTP {status}")
+    try:
+        data = response.json()
+    except ValueError:
+        if status in (401, 403):
+            raise AuthenticationError(f"{operation}: HTTP {status}") from None
+        raise ServiceUnavailableError(f"{operation}: invalid JSON (HTTP {status})") from None
+    if not isinstance(data, dict):
+        raise ServiceUnavailableError(f"{operation}: invalid response (HTTP {status})")
+    error = data.get('error')
+    if error is not None and not isinstance(error, str):
+        raise ServiceUnavailableError(f"{operation}: invalid error response (HTTP {status})")
+    if status in (401, 403) or error in {
+        'invalid_token', 'expired_token', 'invalid_grant', 'invalid_client',
+        'unauthorized_client', 'invalid_request', 'access_denied',
+    }:
+        raise AuthenticationError(f"{operation}: OAuth rejected (HTTP {status})")
+    if status != 200 or error:
+        raise ServiceUnavailableError(f"{operation}: unexpected response (HTTP {status})")
+    return data
 
 
 def write_status(status, remaining=-1):
@@ -179,20 +215,12 @@ def refresh_access_token(access_token, refresh_token):
             'client_secret': DA_CLIENT_SECRET,
             'refresh_token': refresh_token,
         }, timeout=30)
-    except requests.RequestException as e:
-        raise AuthenticationError(f"Token refresh request failed: {e}") from e
+    except requests.RequestException:
+        raise ServiceUnavailableError("Token refresh: network request failed") from None
 
-    if r.status_code != 200:
-        try:
-            error_data = r.json()
-            detail = error_data.get('error_description') or error_data.get('error') or 'unknown error'
-        except ValueError:
-            detail = 'non-JSON response'
-        raise AuthenticationError(f"Token refresh failed: HTTP {r.status_code}: {detail}")
-
-    token_data = r.json()
-    if 'access_token' not in token_data:
-        raise AuthenticationError("Token refresh response did not include access_token")
+    token_data = auth_response_data(r, "Token refresh")
+    if not isinstance(token_data.get('access_token'), str) or not token_data['access_token']:
+        raise ServiceUnavailableError("Token refresh response did not include a valid access_token")
 
     new_access_token = token_data['access_token']
     new_refresh_token = token_data.get('refresh_token', refresh_token)
@@ -212,15 +240,17 @@ def get_valid_token(access_token, refresh_token):
     try:
         r = requests.get("https://www.deviantart.com/api/v1/oauth2/user/whoami",
                          params={'access_token': access_token}, timeout=30)
-    except requests.RequestException as e:
-        raise AuthenticationError(f"Token validation request failed: {e}") from e
-    if r.status_code == 200:
-        user = r.json().get('username', 'unknown')
-        print(f"Auth OK: {user}")
-        return access_token, refresh_token
-    else:
-        print(f"Token expired (status={r.status_code}), refreshing...")
+    except requests.RequestException:
+        raise ServiceUnavailableError("Token validation: network request failed") from None
+    try:
+        user_data = auth_response_data(r, "Token validation")
+    except AuthenticationError:
+        print(f"Token rejected (status={r.status_code}), refreshing...")
         return refresh_access_token(access_token, refresh_token)
+    if not isinstance(user_data.get('username'), str) or not user_data['username'].strip():
+        raise ServiceUnavailableError("Token validation: response did not include a valid username")
+    print("Auth OK")
+    return access_token, refresh_token
 
 
 # ============================================================
@@ -379,16 +409,7 @@ def build_description(file_path, tags, variant_key=""):
             category = sanitize_category(p)
             break
 
-    hashtags = ' '.join([f'#{t.replace(" ", "")}' for t in tags[:15]])
-
-    # DAはHTMLアンカーを剥がすため、素のURLをそのまま記載する
-    patreon_link = with_utm_content(PATREON_LINK, variant_key)
-    description = f'🔥 More content on Patreon → {patreon_link}'
-    backlinks = build_backlink_block(variant_key)
-    if backlinks:
-        description = description + "\n\n" + backlinks
-
-    return category, description
+    return category, build_canonical_description()
 
 
 # ============================================================
@@ -513,6 +534,10 @@ def main():
     # is required; retrying with the same invalid refresh token cannot recover.
     try:
         access_token, refresh_token = get_valid_token(access_token, refresh_token)
+    except ServiceUnavailableError as e:
+        print(f"DeviantArt service unavailable: {e}")
+        write_status("service_error")
+        return 1
     except AuthenticationError as e:
         print(f"Authentication failed: {e}")
         print("Action required: run reauth.py locally to replace the GitHub OAuth secrets.")
@@ -607,6 +632,10 @@ def main():
         print("\nRefreshing token and retrying...")
         try:
             access_token, refresh_token = refresh_access_token(access_token, refresh_token)
+        except ServiceUnavailableError as e:
+            print(f"DeviantArt service unavailable: {e}")
+            write_status("service_error")
+            return 1
         except AuthenticationError as e:
             print(f"Authentication failed: {e}")
             print("Action required: run reauth.py locally to replace the GitHub OAuth secrets.")
@@ -643,11 +672,16 @@ def main():
 
     # 変種ログ（posted_log.json、gitで永続化 → autonomyが反応と結合して重み更新）
     deviationid = (result or {}).get('deviationid', '')
+    publication_receipt = record_publication_result(
+        'deviantart', {'title': title, 'caption': description},
+        post_id=deviationid, source_locator=publish_url if result else None,
+        confirmed=bool(result), variants={'deviantart.title': title_vid})
     log_post("deviantart", {
         "deviationid": str(deviationid),
         "publish_url": publish_url,
         "file": fname,
         "variants": {"deviantart.title": title_vid},
+        "publication_receipt": publication_receipt,
         "tags_count": len(tags),
     })
 

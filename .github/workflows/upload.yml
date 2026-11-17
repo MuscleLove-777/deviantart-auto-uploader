@@ -246,6 +246,10 @@ jobs:
               echo "::error::DeviantArt OAuth認証切れ。ローカルで reauth.py を実行し、GitHub Secretsを更新してください"
               exit 1
               ;;
+            service_error)
+              echo "::error::DeviantArt APIの一時障害・通信異常が再試行後も継続。投稿なし。認証切れとは判定していません"
+              exit 1
+              ;;
             *)
               echo "::error::アップロード失敗（詳細は上のattemptステップのログを参照）"
               exit 1

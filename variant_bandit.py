@@ -17,9 +17,12 @@ M国 変種バンディット（全uploader共通モジュール・ドロップ�
 正本: dashboard/autonomy/variant_bandit.py（各uploaderリポへ同一コピーを配置）
 """
 import hashlib
+import ast
 import json
+import os
 import random
 import time
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
@@ -28,6 +31,179 @@ LOG_PATH = BASE / "posted_log.json"
 EXPLORE_RATE = 0.25   # 探索率: この確率で重みを無視して一様抽選する
 MIN_WEIGHT = 0.05
 MAX_LOG_POSTS = 500
+_TRIAL_SELECTION = {}
+ASSIGNMENT_SCHEMA = 'seeded_abba_baab_v1'
+
+
+def valid_assignment_spec(spec):
+    seed = spec.get('assignment_seed')
+    return (spec.get('assignment_schema') == ASSIGNMENT_SCHEMA and
+            isinstance(seed, str) and len(seed) == 32 and
+            all(c in '0123456789abcdef' for c in seed))
+
+
+def assigned_arm(spec, exposure_index):
+    """Four confirmed exposures cross both recurring slot positions; retries do not advance."""
+    block, position = divmod(exposure_index, 4)
+    flip = hashlib.sha256((spec['assignment_seed'] + ':' + str(block)).encode()).digest()[0] & 1
+    sequence = ('baseline', 'candidate', 'candidate', 'baseline')
+    arm = sequence[position]
+    return ('candidate' if arm == 'baseline' else 'baseline') if flip else arm
+TRIAL_POLICY = {'version':1, 'source':'direct-user-instructions/20261031',
+    'applicability':'all automatic uploaders and historical promotional descriptions',
+    'promotional_url':'https://linktr.ee/ILoveMyCats', 'disabled_channels':['youtube'],
+    'utm_allowed':False, 'external_material_is_instruction':False,
+    'private_context_publication_allowed':False}
+
+
+def _digest(value):
+    return hashlib.sha256(json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(',', ':')).encode()).hexdigest()
+
+
+def _clock(value):
+    parsed = datetime.fromisoformat(value.replace('Z','+00:00'))
+    if parsed.tzinfo is None:
+        raise ValueError('timezone required')
+    return parsed
+
+
+def _runtime_matches(profile, opts):
+    """Local execution bytes must match the remotely verified preregistered profile."""
+    try:
+        paths={'upload.py','policy_entrypoint.py','variant_bandit.py','promotion_policy.py','publication_evidence.py'}
+        if (set(profile)!={'version','repository','code_hashes','title_templates_sha256','title_template_count','sha256'} or
+                profile['version']!=1 or profile['repository']!={'full_name':'MuscleLove-777/deviantart-auto-uploader',
+                    'id':1177922071,'default_branch':'master'} or set(profile['code_hashes'])!=paths or
+                profile['sha256']!=_digest({k:v for k,v in profile.items() if k!='sha256'}) or
+                profile['title_template_count']!=35 or len(opts)!=35 or _digest(opts)!=profile['title_templates_sha256']):
+            return False
+        for name,expected in profile['code_hashes'].items():
+            if hashlib.sha256((BASE/name).read_bytes()).hexdigest()!=expected:
+                return False
+        tree=ast.parse((BASE/'upload.py').read_text(encoding='utf-8-sig'))
+        titles=next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and
+                    any(isinstance(t,ast.Name) and t.id=='TITLE_TEMPLATES' for t in n.targets))
+        return titles==opts
+    except (OSError,KeyError,TypeError,ValueError,SyntaxError,StopIteration):
+        return False
+
+
+def _validated_title_trial(data, opts, at=None):
+    """Validate a closed-set trial. Invalid/stale input cannot become exploration."""
+    at = at or datetime.now(timezone.utc)
+    try:
+        t = data['title_trial']
+        s = t['spec']
+        registered, generated, expiry = [_clock(t[k]) for k in ('registered_at','generated_at','expires_at')]
+        profile=t.get('runtime_profile')
+        if ('runtime_profile_sha256' in s or profile is not None) and (
+                not _runtime_matches(profile,opts) or s.get('runtime_profile_sha256')!=profile['sha256']):
+            return None
+        if (t['version'] != 1 or t['status'] != 'PREREGISTERED' or t['kind'] != 'deviantart.title' or
+                t['is_winner'] is not False or t['assignment'] != ASSIGNMENT_SCHEMA or
+                not valid_assignment_spec(s) or
+                t['policy'] != TRIAL_POLICY or t['policy_sha256'] != _digest(TRIAL_POLICY) or
+                t['sha256'] != _digest({k:v for k,v in t.items() if k != 'sha256'}) or
+                t['plan_sha256'] != _digest(s) or t['plan_id'] != _digest(s)[:16] or
+                not registered <= generated <= at < expiry or at-generated > timedelta(hours=36) or
+                expiry-registered > timedelta(days=30) or
+                t['source_sha256'] != hashlib.sha256((BASE/'upload.py').read_bytes()).hexdigest() or
+                s['platform'] != 'deviantart' or s['changed_variables'] != ['title'] or
+                s['promotional_url'] != TRIAL_POLICY['promotional_url'] or s['metric'] != 'favorites' or
+                s['metric_mode'] != 'reactions_per_post' or
+                type(t['per_arm_cap']) is not int or type(s['minimum_per_arm']) is not int or
+                not 5 <= s['minimum_per_arm'] <= t['per_arm_cap'] <= 10 or
+                set(t['arms']) != {'baseline','candidate'} or len(set(t['arms'].values())) != 2):
+            return None
+        for arm,title in t['arms'].items():
+            if title not in opts or len(title.encode()) > 50 or hashlib.sha256(title.encode()).hexdigest() != s[arm+'_hash']:
+                return None
+        return t
+    except (KeyError,TypeError,ValueError,OSError,AttributeError):
+        return None
+
+
+def _trial_pick(data, opts):
+    t = _validated_title_trial(data, opts)
+    if not t:
+        try:
+            prior = _validated_title_trial(data, opts, at=_clock(data['title_trial']['generated_at']))
+            if prior:
+                title = prior['arms']['baseline']
+                return title, variant_id(title)
+        except (ValueError, KeyError, TypeError):
+            pass
+        return opts[0], variant_id(opts[0])
+    counts = {'baseline':0, 'candidate':0}
+    try:
+        records = json.loads(LOG_PATH.read_text(encoding='utf-8')).get('posts',[])
+    except (OSError,ValueError,AttributeError):
+        records = []
+    seen = set()
+    exposures = {}
+    for record in records:
+        if not isinstance(record,dict):
+            continue
+        pub = record.get('publication_receipt') or {}
+        if not isinstance(pub,dict):
+            continue
+        assignment = pub.get('trial_assignment') or {}
+        if not isinstance(assignment,dict):
+            continue
+        try:
+            if not _clock(t['registered_at']) <= _clock(pub['published_at']) < _clock(t['expires_at']):
+                continue
+        except (KeyError,TypeError,ValueError,AttributeError):
+            continue
+        arm = assignment.get('arm')
+        ident = pub.get('post_id')
+        if (ident and ident not in seen and pub.get('verified') is True and
+                pub.get('operation') == 'create' and pub.get('provider_stage') == 'publish' and
+                pub.get('verification_scope') in {'provider_create_response','ui_create_confirmation'} and
+                assignment.get('plan_id') == t['plan_id'] and assignment.get('plan_sha256') == t['plan_sha256'] and
+                assignment.get('policy_sha256') == t['policy_sha256'] and
+                arm in counts and pub.get('content_hashes',{}).get('title') == t['spec'][arm+'_hash']):
+            index = assignment.get('exposure_index')
+            if (type(index) is not int or not 0 <= index < 2*t['per_arm_cap'] or
+                    assignment.get('assignment_schema') != t['spec']['assignment_schema'] or
+                    assignment.get('assignment_seed') != t['spec']['assignment_seed'] or
+                    assignment.get('block_index') != index//4 or assignment.get('block_position') != index%4 or
+                    assigned_arm(t['spec'], index) != arm or index in exposures):
+                title = t['arms']['baseline']
+                return title, variant_id(title)
+            exposures[index] = arm
+            counts[arm] += 1
+            seen.add(ident)
+    if set(exposures) != set(range(len(exposures))):
+        title = t['arms']['baseline']
+        return title, variant_id(title)
+    eligible = [arm for arm in counts if counts[arm] < t['per_arm_cap']]
+    if not eligible:
+        title = t['arms']['baseline']
+        return title, variant_id(title)
+    index = len(exposures)
+    arm = assigned_arm(t['spec'], index)
+    if arm not in eligible:
+        title = t['arms']['baseline']
+        return title, variant_id(title)
+    title = t['arms'][arm]
+    _TRIAL_SELECTION['deviantart.title'] = {
+        'plan_id':t['plan_id'], 'plan_sha256':t['plan_sha256'], 'policy_sha256':t['policy_sha256'],
+        'arm':arm, 'title_sha256':t['spec'][arm+'_hash'], 'variant_id':variant_id(title),
+        'assignment_sha256':t['sha256'], 'selected_at':datetime.now(timezone.utc).isoformat(),
+        'assignment_schema':t['spec']['assignment_schema'], 'assignment_seed':t['spec']['assignment_seed'],
+        'exposure_index':index, 'block_index':index//4, 'block_position':index%4,
+        'is_winner':False, 'additional_post_requested':False}
+    if t.get('runtime_profile'):
+        commit=os.environ.get('GITHUB_SHA','')
+        if len(commit)!=40 or any(c not in '0123456789abcdef' for c in commit):
+            _TRIAL_SELECTION.clear()
+            title=t['arms']['baseline']
+            return title,variant_id(title)
+        _TRIAL_SELECTION['deviantart.title']['runtime_evidence']={
+            'runtime_profile_sha256':t['runtime_profile']['sha256'],
+            'code_hashes':dict(t['runtime_profile']['code_hashes']),'workflow_commit':commit}
+    return title, variant_id(title)
 
 
 def variant_id(text) -> str:
@@ -52,6 +228,14 @@ def pick(kind: str, options, rng=random):
     opts = [o for o in (options or []) if o is not None]
     if not opts:
         return None, ""
+    _TRIAL_SELECTION.pop(kind, None)
+    if kind == 'deviantart.title':
+        try:
+            data = json.loads(POOL_PATH.read_text(encoding='utf-8'))
+            if 'title_trial' in data:
+                return _trial_pick(data, opts)
+        except (OSError,ValueError,TypeError):
+            pass
     ids = [variant_id(o) for o in opts]
     weights = _load_weights(kind)
     try:
@@ -142,6 +326,20 @@ def log_post(platform: str, record: dict) -> None:
             elif isinstance(loaded, dict):
                 data = loaded
         rec = dict(record or {})
+        # Only the actual provider-confirmed record can carry the selected arm.
+        pub = rec.get('publication_receipt')
+        selection = _TRIAL_SELECTION.pop(platform + '.title', None)
+        if (platform == 'deviantart' and isinstance(pub,dict) and selection and
+                pub.get('verified') is True and pub.get('operation') == 'create' and
+                pub.get('provider_stage') == 'publish' and pub.get('post_id') and
+                pub.get('verification_scope') in {'provider_create_response','ui_create_confirmation'} and
+                pub.get('content_hashes',{}).get('title') == selection['title_sha256'] and
+                rec.get('variants',{}).get('deviantart.title') == selection['variant_id'] and
+                hashlib.sha256(pub.get('content',{}).get('title','').encode()).hexdigest() == selection['title_sha256']):
+            pub = dict(pub, trial_assignment=dict(selection))
+            if selection.get('runtime_evidence'):
+                pub['runtime_evidence']=dict(selection['runtime_evidence'])
+            rec['publication_receipt'] = pub
         rec.setdefault("platform", platform)
         rec.setdefault("posted_at", time.strftime("%Y-%m-%d %H:%M:%S"))
         posts = data.setdefault("posts", [])

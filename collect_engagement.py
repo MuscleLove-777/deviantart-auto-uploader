@@ -7,6 +7,7 @@ DeviantArt投稿の反応(favourites/comments)を回収して engagement.json �
 GitHub Actions で upload 後に実行し、posted_log.json と一緒に commit する。
 失敗しても exit 0（計測は投稿を絶対に止めない）。
 """
+from publication_evidence import native_observation, record_collection_run, utc_now
 import json
 import os
 import sys
@@ -16,6 +17,7 @@ import requests
 
 from upload import (
     AuthenticationError,
+    ServiceUnavailableError,
     DA_ACCESS_TOKEN,
     DA_REFRESH_TOKEN,
     TOKENS_FILE,
@@ -45,6 +47,9 @@ def load_run_tokens():
 def main():
     try:
         access_token, _ = get_valid_token(*load_run_tokens())
+    except ServiceUnavailableError as e:
+        print(f"skip: DeviantArt service unavailable: {e}")
+        return 0
     except AuthenticationError as e:
         print(f"skip: DeviantArt authentication unavailable: {e}")
         return 0
@@ -62,6 +67,7 @@ def main():
 
     fetched = {}
     offset = 0
+    failures = []
     while offset < MAX_DEVIATIONS:
         try:
             r = requests.get(
@@ -75,12 +81,18 @@ def main():
                 timeout=60,
             )
         except Exception as e:
-            print(f"fetch error at offset {offset}: {e}")
+            failures.append(type(e).__name__)
+            print(f"fetch error at offset {offset}: {type(e).__name__}")
             break
         if r.status_code != 200:
-            print(f"gallery fetch failed: {r.status_code} {r.text[:200]}")
+            failures.append(f"provider_http_{r.status_code}")
+            print(f"gallery fetch failed: {r.status_code}")
             break
-        data = r.json()
+        try:
+            data = r.json()
+        except (ValueError, TypeError):
+            failures.append("invalid_response")
+            break
         results = data.get("results", [])
         if not results:
             break
@@ -89,24 +101,31 @@ def main():
             if not did:
                 continue
             stats = d.get("stats", {}) or {}
+            try:
+                observation = native_observation("favourites", stats.get("favourites"), {"title": d.get("title")})
+            except ValueError:
+                failures.append("missing_native_counter")
+                continue
             fetched[did] = {
-                "favourites": int(stats.get("favourites", 0) or 0),
-                "comments": int(stats.get("comments", 0) or 0),
+                **observation,
                 "url": d.get("url", ""),
                 "title": d.get("title", ""),
                 "published_time": d.get("published_time", ""),
             }
+            if isinstance(stats.get("comments"), int) and not isinstance(stats.get("comments"), bool):
+                fetched[did]["comments"] = stats["comments"]
         if not data.get("has_more"):
             break
         offset = data.get("next_offset") or (offset + PAGE_SIZE)
 
+    record_collection_run(OUT_PATH, "deviantart", fetched, failures)
     if not fetched:
         print("no deviations fetched; keeping existing engagement.json")
         return 0
 
     existing.update(fetched)
     out = {
-        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "updated_at": utc_now(),
         "deviations": existing,
     }
     with open(OUT_PATH, "w", encoding="utf-8") as f:
